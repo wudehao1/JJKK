@@ -1,0 +1,105 @@
+<template>
+  <view class="page sector-page" :class="themeMode === 'dark' ? 'dark-page' : ''">
+    <view class="top-card">
+      <text class="page-title">板块涨跌</text>
+      <text class="page-sub">{{ loadedAt ? '更新 ' + loadedAt : '加载全部板块排行' }}</text>
+    </view>
+    <view class="ranking-card">
+      <view v-if="items.length === 0 && !loading" class="empty-rank">
+        <text class="empty-text">暂无板块数据</text>
+      </view>
+      <view v-for="(item, index) in items" :key="item.code" class="rank-row">
+        <view class="rank-left">
+          <text class="rank-index">{{ index + 1 }}</text>
+          <view class="rank-main">
+            <text class="rank-name">{{ item.name }}</text>
+            <text class="rank-code">{{ item.code }}</text>
+          </view>
+        </view>
+        <view class="rank-right">
+          <text class="rank-pct" :class="rankClass(item.changePct)">{{ formatPercent(item.changePct) }}</text>
+          <text class="rank-value">{{ formatPrice(item.latestValue) }}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script>
+import { applyTheme, getThemeMode } from '../../common/theme.js'
+import { getSectorRankings, percent, valueClass } from '../../common/api.js'
+
+export default {
+  data() {
+    return {
+      themeMode: getThemeMode(),
+      loading: false,
+      loadedAt: '',
+      items: []
+    }
+  },
+  onLoad() {
+    this.load()
+  },
+  onShow() {
+    this.applyPageTheme()
+  },
+  methods: {
+    applyPageTheme() {
+      this.themeMode = getThemeMode()
+      applyTheme()
+    },
+    load() {
+      this.loading = true
+      getSectorRankings(100).then((items) => {
+        this.items = items || []
+        this.loadedAt = this.nowText()
+      }).finally(() => {
+        this.loading = false
+      })
+    },
+    nowText() {
+      const now = new Date()
+      const pad = (value) => String(value).padStart(2, '0')
+      return pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds())
+    },
+    formatPrice(value) {
+      if (value === null || value === undefined || value === '') return '--'
+      return Number(value).toFixed(2)
+    },
+    formatPercent(value) {
+      return percent(value)
+    },
+    rankClass(value) {
+      return valueClass(value)
+    }
+  }
+}
+</script>
+
+<style>
+.sector-page { min-height: 100%; padding: 12px; background-color: #F4F6FA; }
+.top-card { padding: 16px; border-radius: 8px; background: linear-gradient(135deg, #1BA7FF 0%, #1677F2 78%); }
+.page-title { color: #FFFFFF; font-size: 22px; font-weight: 800; }
+.page-sub { display: block; margin-top: 7px; color: rgba(255,255,255,0.82); font-size: 11px; }
+.ranking-card { margin-top: 10px; padding: 13px; border-radius: 8px; background-color: #FFFFFF; }
+.rank-row { min-height: 48px; flex-direction: row; align-items: center; justify-content: space-between; border-bottom: 1px solid #F0F2F6; }
+.rank-left { flex: 1; min-width: 0; flex-direction: row; align-items: center; }
+.rank-index { width: 28px; color: #98A2B3; font-size: 12px; font-weight: 800; }
+.rank-main { flex: 1; min-width: 0; }
+.rank-name { color: #1F2937; font-size: 13px; font-weight: 800; }
+.rank-code { display: block; margin-top: 4px; color: #98A2B3; font-size: 10px; }
+.rank-right { width: 86px; align-items: flex-end; }
+.rank-pct { font-size: 14px; font-weight: 800; }
+.rank-value { display: block; margin-top: 4px; color: #98A2B3; font-size: 10px; }
+.empty-rank { height: 90px; align-items: center; justify-content: center; }
+.empty-text { color: #98A2B3; font-size: 12px; }
+.up { color: #D94252; }
+.down { color: #18A875; }
+.flat { color: #667085; }
+.dark-page.sector-page { background-color: #111827; }
+.dark-page .ranking-card { background-color: #1F2937; }
+.dark-page .rank-name { color: #F9FAFB; }
+.dark-page .rank-index, .dark-page .rank-code, .dark-page .rank-value, .dark-page .empty-text { color: #A7B0BE; }
+.dark-page .rank-row { border-bottom-color: #374151; }
+</style>

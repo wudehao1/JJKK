@@ -1,0 +1,483 @@
+﻿<template>
+  <view class="detail-page" :class="themeMode === 'dark' ? 'dark-page' : ''">
+    <view class="hero">
+      <view class="nav-row">
+        <text class="back" @click="goBack">鈥?/text>
+        <text class="nav-title">鍩洪噾璇︽儏</text>
+        <text class="nav-space"></text>
+      </view>
+      <view class="hero-meta">
+        <text class="state-pill" :class="statusClass">{{ statusText }}</text>
+        <text class="code-text">{{ fundCode }}</text>
+      </view>
+      <text class="name-text">{{ fundName || fundCode }}</text>
+    </view>
+
+    <view class="stat-card">
+      <view class="stat-main">
+        <text class="stat-big" :class="valueClassName(summaryEstimatePct)">{{ chartValueText(summaryEstimatePct) }}</text>
+        <text class="stat-label">{{ officialNavUpdated ? '鐪熷疄娑ㄥ箙' : '浼扮畻娑ㄥ箙' }}({{ summaryDateText }})</text>
+      </view>
+      <view class="stat-block">
+        <text class="stat-value" :class="valueClassName(summaryDailyPct)">{{ chartValueText(summaryDailyPct) }}</text>
+        <text class="stat-label">鏃ユ定骞?{{ navDateText }})</text>
+      </view>
+      <view class="stat-block">
+        <text class="stat-value">{{ navValue(summaryNav) }}</text>
+        <text class="stat-label">鍑€鍊?{{ navDateText }})</text>
+      </view>
+    </view>
+
+    <view class="chart-card">
+      <view class="chart-head">
+        <view>
+          <text class="chart-time">{{ pointDateText(selectedPoint) }}</text>
+          <view class="row">
+            <text class="chart-title">{{ chartTitle }}</text>
+            <text class="chart-change" :class="valueClassName(selectedPoint ? selectedPoint.value : lastChangePct)">{{ chartValueText(selectedPoint ? selectedPoint.value : lastChangePct) }}</text>
+          </view>
+        </view>
+        <view class="detail-refresh" @click="refreshChart">
+          <text class="detail-refresh-icon" :class="loading ? 'refreshing' : ''">鈫?/text>
+          <text class="detail-refresh-text">{{ loading ? '鍒锋柊涓? : '鍒锋柊' }}</text>
+        </view>
+      </view>
+
+      <view class="chart-shell">
+        <view
+          id="fundChartBox"
+          class="chart-plot"
+          :style="'height:' + chartHeight + 'px;'"
+          @touchstart="handleChartTouchStart"
+          @touchmove="handleChartTouchMove"
+          @touchend="keepActivePoint"
+          @touchcancel="keepActivePoint"
+        >
+          <view v-if="displayPoints.length > 0" class="chart-gradient" :style="chartModel.fillStyle"></view>
+          <view class="grid-line grid-top"></view>
+          <view class="grid-line grid-mid"></view>
+          <view class="grid-line grid-bottom"></view>
+          <view class="zero-line" :style="chartModel.zeroStyle"></view>
+          <view v-if="currentRange === 'today'" class="middle-line" :style="chartModel.middleStyle"></view>
+          <view v-for="segment in chartModel.segments" :key="segment.key" class="line-segment" :style="segment.style"></view>
+          <view v-for="dot in chartModel.dots" :key="dot.key" class="line-dot" :style="dot.style"></view>
+          <view v-if="activePoint" class="active-line" :style="chartModel.activeLineStyle"></view>
+          <view v-if="activePoint" class="active-dot" :style="chartModel.activeDotStyle"></view>
+          <text v-if="activePoint" class="active-bubble" :style="chartModel.activeLabelStyle">{{ activeBubbleText }}</text>
+          <text class="axis-y axis-top">{{ chartTopLabel }}</text>
+          <text class="axis-y axis-bottom">{{ chartBottomLabel }}</text>
+          <view v-if="displayPoints.length === 0" class="empty-mask">
+            <text class="empty-text">鏆傛棤璧板娍鏁版嵁</text>
+          </view>
+        </view>
+        <view class="axis-x">
+          <text class="axis-x-text">{{ axisStartLabel }}</text>
+          <text class="axis-x-text">{{ axisMiddleLabel }}</text>
+          <text class="axis-x-text">{{ axisEndLabel }}</text>
+        </view>
+      </view>
+
+      <view class="range-tabs">
+        <view v-for="item in ranges" :key="item.key" class="range-tab" :class="currentRange === item.key ? 'active-range' : ''" @click="changeRange(item.key)">
+          <text class="range-label" :class="currentRange === item.key ? 'active-range-text' : ''">{{ item.label }}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script>
+import { applyTheme, getThemeMode, setThemeMode } from '../../common/theme.js'
+import { getFundDetail, getFundMinute, getFundHistory, navText, valueClass } from '../../common/api.js'
+import { buildLineChartModel, locateLinePoint } from '../../common/line-chart.js'
+
+export default {
+  data() {
+    return {
+      themeMode: getThemeMode(),
+      fundCode: '',
+      fundName: '',
+      detail: null,
+      loading: false,
+      dataStatus: '',
+      updatedAt: '',
+      currentRange: 'today',
+      ranges: [
+        { key: 'today', label: '浠婂ぉ' },
+        { key: '1m', label: '杩?鏈? },
+        { key: '3m', label: '杩?鏈? },
+        { key: '6m', label: '杩?鏈? },
+        { key: '1y', label: '杩?骞? }
+      ],
+      chartPoints: [],
+      lastRawValue: null,
+      lastChangePct: null,
+      chartWidth: 320,
+      chartHeight: 248,
+      chartLeft: 26,
+      activePoint: null,
+      touchStartX: 0,
+      touchStartY: 0,
+      timer: 0
+    }
+  },
+  computed: {
+    displayPoints() {
+      return this.chartPoints || []
+    },
+    selectedPoint() {
+      if (this.activePoint) return this.activePoint
+      return this.displayPoints.length > 0 ? this.displayPoints[this.displayPoints.length - 1] : null
+    },
+    chartModel() {
+      return buildLineChartModel(this.displayPoints, {
+        width: this.chartWidth,
+        height: this.chartHeight,
+        activeIndex: this.activePoint ? this.activePoint.index : -1,
+        symmetric: this.currentRange === 'today'
+      })
+    },
+    chartScale() {
+      const values = this.displayPoints.map((item) => Number(item.value)).filter((item) => Number.isFinite(item))
+      if (!values.length) return { min: -1, max: 1 }
+      let min = Math.min.apply(null, values)
+      let max = Math.max.apply(null, values)
+      if (this.currentRange === 'today') {
+        const bound = Math.max(Math.abs(min), Math.abs(max), 0.01)
+        return { min: -bound, max: bound }
+      }
+      min = Math.min(min, 0)
+      max = Math.max(max, 0)
+      if (min === max) {
+        const spread = Math.max(Math.abs(max), 1)
+        min -= spread
+        max += spread
+      }
+      const padding = (max - min) * 0.08
+      return { min: min - padding, max: max + padding }
+    },
+    chartTopLabel() {
+      return this.chartValueText(this.chartScale.max)
+    },
+    chartBottomLabel() {
+      return this.chartValueText(this.chartScale.min)
+    },
+    axisStartLabel() {
+      if (this.currentRange === 'today') return '09:30'
+      return this.pointDateText(this.displayPoints[0])
+    },
+    axisMiddleLabel() {
+      if (this.currentRange === 'today') return '11:30/13:00'
+      if (!this.displayPoints.length) return '--'
+      return this.pointDateText(this.displayPoints[Math.floor(this.displayPoints.length / 2)])
+    },
+    axisEndLabel() {
+      if (this.currentRange === 'today') return '15:00'
+      return this.pointDateText(this.displayPoints[this.displayPoints.length - 1])
+    },
+    statusText() {
+      const key = this.effectiveDataStatus
+      if (key === 'CLOSED') return '已收盘'
+      if (key === 'DELAYED') return '估算延迟'
+      if (key === 'ERROR') return '估算异常'
+      return this.officialNavUpdated ? '已更新' : '实时估算'
+    },
+    statusClass() {
+      const key = this.effectiveDataStatus
+      if (key === 'CLOSED') return 'state-updated'
+      if (key === 'DELAYED') return 'state-delayed'
+      if (key === 'ERROR') return 'state-error'
+      return this.officialNavUpdated ? 'state-updated' : 'state-pending'
+    },
+    effectiveDataStatus() {
+      const key = String((this.detail && this.detail.dataStatus) || this.dataStatus || '').toUpperCase()
+      return key || 'NORMAL'
+    },
+    officialNavUpdated() {
+      if (!this.detail || !this.detail.latestNavDate) return false
+      if (this.detail.dataStatus !== 'CLOSED') return false
+      return String(this.detail.latestNavDate).slice(0, 10) >= this.expectedOfficialNavDate()
+    },
+    summaryEstimatePct() {
+      if (this.officialNavUpdated && this.detail && this.detail.latestDailyReturnPct !== null && this.detail.latestDailyReturnPct !== undefined) {
+        return this.detail.latestDailyReturnPct
+      }
+      if (this.selectedPoint) return this.selectedPoint.value
+      if (this.detail && this.detail.estimateReturnPct !== null && this.detail.estimateReturnPct !== undefined) return this.detail.estimateReturnPct
+      return this.lastChangePct
+    },
+    summaryDailyPct() {
+      return this.detail ? this.detail.latestDailyReturnPct : null
+    },
+    summaryNav() {
+      if (this.officialNavUpdated && this.detail && this.detail.latestUnitNav) return this.detail.latestUnitNav
+      if (this.selectedPoint && this.selectedPoint.rawValue) return this.selectedPoint.rawValue
+      if (this.detail && this.detail.estimateNav) return this.detail.estimateNav
+      return this.detail ? this.detail.latestUnitNav : this.lastRawValue
+    },
+    summaryDateText() {
+      if (this.officialNavUpdated && this.detail && this.detail.latestNavDate) return String(this.detail.latestNavDate).slice(5, 10)
+      return this.pointDateText(this.selectedPoint).slice(0, 5)
+    },
+    navDateText() {
+      if (this.detail && this.detail.latestNavDate) return String(this.detail.latestNavDate).slice(5, 10)
+      return this.summaryDateText
+    },
+    chartTitle() {
+      return this.currentRange === 'today' ? (this.officialNavUpdated ? '鐪熷疄娑ㄥ箙' : '浼扮畻娑ㄥ箙') : '鍖洪棿璧板娍'
+    },
+    activeBubbleText() {
+      if (!this.activePoint || !this.activePoint.time) return '--'
+      const text = String(this.activePoint.time).replace('T', ' ')
+      return this.currentRange === 'today' ? text.slice(11, 16) : text.slice(5, 10)
+    }
+  },
+  onLoad(options) {
+    this.fundCode = options.fundCode || ''
+    this.loadDetail()
+    this.load()
+  },
+  onReady() {
+    this.measureChart()
+  },
+  onShow() {
+    this.applyPageTheme()
+    this.measureChart()
+    this.startTimer()
+  },
+  onHide() {
+    this.stopTimer()
+  },
+  onUnload() {
+    this.stopTimer()
+  },
+  methods: {
+    applyPageTheme() {
+      this.themeMode = getThemeMode()
+      applyTheme()
+    },
+    goBack() {
+      uni.navigateBack({ delta: 1 })
+    },
+    changeRange(range) {
+      this.currentRange = range
+      this.activePoint = null
+      this.load()
+      this.startTimer()
+    },
+    refreshChart() {
+      this.activePoint = null
+      this.loadDetail()
+      this.load(true)
+    },
+    loadDetail() {
+      if (!this.fundCode) return
+      getFundDetail(this.fundCode).then((detail) => {
+        this.detail = detail
+        this.fundName = detail.fundName || this.fundName
+      }).catch(() => {})
+    },
+    load(showTip) {
+      if (!this.fundCode) return
+      this.loading = true
+      const action = this.currentRange === 'today' ? getFundMinute(this.fundCode) : getFundHistory(this.fundCode, this.currentRange)
+      action.then((data) => {
+        this.fundName = data.fundName || this.fundName
+        this.dataStatus = data.dataStatus || ''
+        this.updatedAt = data.updatedAt || ''
+        this.chartPoints = this.buildChartPoints(data.points || [])
+        const last = this.chartPoints.length > 0 ? this.chartPoints[this.chartPoints.length - 1] : null
+        this.lastRawValue = last ? last.rawValue : null
+        this.lastChangePct = last ? last.changePct : null
+        this.measureChart()
+        if (this.currentRange === 'today') this.loadDetail()
+        if (showTip) uni.showToast({ title: '宸插埛鏂?, icon: 'none' })
+      }).catch(() => {
+        this.chartPoints = []
+      }).finally(() => {
+        this.loading = false
+      })
+    },
+    buildChartPoints(rawPoints) {
+      const rows = rawPoints.map((point) => {
+        const rawValue = this.currentRange === 'today' ? point.estimateNav : (point.accumulatedNav || point.unitNav)
+        const sourceChange = point.estimateReturnPct !== null && point.estimateReturnPct !== undefined ? point.estimateReturnPct : point.dailyReturnPct
+        return { rawValue, sourceChange, time: point.quoteTime || point.navDate }
+      }).filter((point) => point.rawValue !== null && point.rawValue !== undefined && point.rawValue !== '')
+
+      if (this.currentRange === 'today') {
+        const first = Number(rows.length ? rows[0].rawValue : 0)
+        return rows.map((point) => {
+          let value = point.sourceChange
+          if ((value === null || value === undefined || value === '') && first) {
+            value = (Number(point.rawValue) - first) / first * 100
+          }
+          const numberValue = Number(value || 0)
+          return { value: numberValue, changePct: numberValue, rawValue: point.rawValue, time: point.time }
+        })
+      }
+
+      const first = Number(rows.length ? rows[0].rawValue : 0)
+      return rows.map((point) => {
+        const current = Number(point.rawValue || 0)
+        const value = first ? (current - first) / first * 100 : Number(point.sourceChange || 0)
+        return { value, changePct: value, rawValue: point.rawValue, time: point.time }
+      })
+    },
+    measureChart() {
+      this.$nextTick(() => {
+        const info = (() => {
+          if (uni.getWindowInfo) return uni.getWindowInfo()
+          if (typeof wx !== 'undefined' && wx.getWindowInfo) return wx.getWindowInfo()
+          return uni.getSystemInfoSync ? uni.getSystemInfoSync() : {}
+        })()
+        this.chartWidth = Math.max(280, (info.windowWidth || 375) - 52)
+        if (!uni.createSelectorQuery) return
+        const query = uni.createSelectorQuery().in(this)
+        query.select('#fundChartBox').boundingClientRect((rect) => {
+          if (rect && rect.width) {
+            this.chartWidth = Math.max(280, rect.width)
+            this.chartLeft = rect.left || 0
+          }
+        }).exec()
+      })
+    },
+    handleChartTouchStart(event) {
+      const source = this.touchSource(event)
+      if (!source) return
+      this.touchStartX = Number(source.clientX !== undefined ? source.clientX : source.pageX || source.x || 0)
+      this.touchStartY = Number(source.clientY !== undefined ? source.clientY : source.pageY || source.y || 0)
+      this.updateActivePoint(source)
+    },
+    handleChartTouchMove(event) {
+      const source = this.touchSource(event)
+      if (!source) return
+      const x = Number(source.clientX !== undefined ? source.clientX : source.pageX || source.x || 0)
+      const y = Number(source.clientY !== undefined ? source.clientY : source.pageY || source.y || 0)
+      const dx = Math.abs(x - this.touchStartX)
+      const dy = Math.abs(y - this.touchStartY)
+      if (dy > dx + 8) return
+      this.updateActivePoint(source)
+    },
+    touchSource(event) {
+      const touch = event.touches && event.touches.length > 0 ? event.touches[0] : null
+      const changed = event.changedTouches && event.changedTouches.length > 0 ? event.changedTouches[0] : null
+      return touch || changed
+    },
+    updateActivePoint(source) {
+      if (!this.displayPoints.length) return
+      let x = Number(source.x)
+      if (!Number.isFinite(x) || x > this.chartWidth + 20) {
+        const clientX = source.clientX !== undefined ? source.clientX : source.pageX
+        x = Number(clientX || 0) - this.chartLeft
+      }
+      const point = locateLinePoint(this.displayPoints, x, this.chartWidth, {
+        height: this.chartHeight,
+        symmetric: this.currentRange === 'today'
+      })
+      if (point) this.activePoint = point
+    },
+    keepActivePoint() {},
+    startTimer() {
+      this.stopTimer()
+      if (this.currentRange === 'today') {
+        this.timer = setInterval(() => { this.load() }, 60000)
+      }
+    },
+    stopTimer() {
+      if (this.timer) {
+        clearInterval(this.timer)
+        this.timer = 0
+      }
+    },
+    navValue(value) {
+      return navText(value)
+    },
+    chartValueText(value) {
+      if (value === null || value === undefined || value === '') return '--'
+      const numberValue = Number(value)
+      const sign = numberValue > 0 ? '+' : ''
+      return sign + numberValue.toFixed(2) + '%'
+    },
+    expectedOfficialNavDate() {
+      const date = new Date()
+      while (date.getDay() === 0 || date.getDay() === 6) {
+        date.setDate(date.getDate() - 1)
+      }
+      const pad = (value) => String(value).padStart(2, '0')
+      return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+    },
+    pointDateText(point) {
+      if (!point || !point.time) return '--'
+      const text = String(point.time).replace('T', ' ')
+      return this.currentRange === 'today' ? text.slice(5, 16) : text.slice(5, 10)
+    },
+    valueClassName(value) {
+      return valueClass(value)
+    }
+  }
+}
+</script>
+
+<style>
+.detail-page { min-height: 100%; padding: 0 0 18px; background-color: #F4F6FA; }
+.hero { padding: 16px 16px 72px; background: linear-gradient(135deg, #24AFFF 0%, #1677F2 78%); }
+.nav-row { height: 36px; flex-direction: row; align-items: center; justify-content: space-between; }
+.back { width: 38px; color: #FFFFFF; font-size: 30px; }
+.nav-title { flex: 1; color: #FFFFFF; font-size: 18px; font-weight: 800; text-align: center; }
+.nav-space { width: 38px; }
+.hero-meta { margin-top: 13px; flex-direction: row; align-items: center; }
+.state-pill { height: 20px; line-height: 20px; padding: 0 7px; border-radius: 5px; background-color: rgba(255,255,255,0.82); color: #1682F4; font-size: 10px; font-weight: 700; }
+.state-updated { color: #1682F4; }
+.state-pending { color: #9A6A00; background-color: rgba(255,255,255,0.72); }
+.state-delayed { color: #9A6700; background-color: #FFF4E5; }
+.state-error { color: #B42318; background-color: #FEE4E2; }
+.code-text { margin-left: 8px; color: #FFFFFF; font-size: 16px; font-weight: 700; }
+.name-text { display: block; margin-top: 7px; color: #FFFFFF; font-size: 22px; font-weight: 800; }
+.stat-card { margin: -52px 12px 10px; padding: 14px 13px; border-radius: 8px; background-color: #FFFFFF; flex-direction: row; align-items: flex-end; justify-content: space-between; box-shadow: 0 8px 22px rgba(23, 84, 168, 0.08); }
+.stat-main { flex: 1.18; }
+.stat-block { flex: 1; }
+.stat-value { color: #1F2A44; font-size: 17px; font-weight: 800; }
+.stat-big { color: #D94252; font-size: 27px; font-weight: 800; }
+.stat-label { display: block; margin-top: 5px; color: #9BA1AA; font-size: 11px; }
+.chart-card { margin: 10px 12px; padding: 12px 12px 10px; border-radius: 8px; background-color: #FFFFFF; }
+.chart-head { min-height: 30px; flex-direction: row; align-items: center; justify-content: space-between; }
+.detail-refresh { width: 66px; height: 28px; border-radius: 14px; background-color: #EAF2FF; flex-direction: row; align-items: center; justify-content: center; }
+.detail-refresh-icon { margin-right: 3px; color: #1677F2; font-size: 14px; font-weight: 800; }
+.detail-refresh-text { color: #1677F2; font-size: 11px; font-weight: 800; }
+.refreshing { opacity: 0.62; }
+.chart-time { color: #8C929D; font-size: 13px; }
+.chart-title { color: #8C929D; font-size: 13px; }
+.chart-change { margin-left: 4px; font-size: 13px; font-weight: 800; }
+.chart-shell { margin-top: 6px; position: relative; }
+.chart-plot { position: relative; overflow: hidden; border-radius: 4px; background: linear-gradient(180deg, #FFFFFF 0%, #FBFCFF 100%); }
+.chart-gradient { position: absolute; border-radius: 4px; }
+.grid-line { position: absolute; left: 0; right: 0; height: 1px; background-color: #EEF0F3; }
+.grid-top { top: 20px; }
+.grid-mid { top: 50%; }
+.grid-bottom { bottom: 24px; }
+.zero-line { position: absolute; left: 0; right: 0; height: 1px; border-top: 1px dotted #C8CDD5; }
+.middle-line { position: absolute; top: 20px; bottom: 24px; width: 1px; border-left: 1px dotted #D2D6DE; }
+.line-segment { position: absolute; height: 2px; border-radius: 2px; transform-origin: 0 50%; }
+.line-dot { position: absolute; width: 2px; height: 2px; border-radius: 1px; }
+.active-line { position: absolute; top: 20px; bottom: 24px; width: 1px; border-left: 1px dotted #9CA3AF; }
+.active-dot { position: absolute; width: 8px; height: 8px; border-radius: 4px; border-width: 2px; border-style: solid; background-color: #FFFFFF; }
+.active-bubble { position: absolute; width: 44px; height: 22px; line-height: 22px; border-radius: 5px; background-color: #20284A; color: #FFFFFF; font-size: 12px; text-align: center; }
+.axis-y { position: absolute; left: 0; color: #8C929D; font-size: 11px; background-color: rgba(255,255,255,0.82); }
+.axis-top { top: 1px; }
+.axis-bottom { bottom: 24px; }
+.axis-x { height: 24px; flex-direction: row; align-items: center; justify-content: space-between; }
+.axis-x-text { color: #747B86; font-size: 12px; }
+.range-tabs { margin-top: 7px; height: 34px; flex-direction: row; align-items: center; background-color: #F5F7FA; border-radius: 6px; }
+.range-tab { flex: 1; height: 28px; margin: 3px; align-items: center; justify-content: center; border-radius: 5px; }
+.active-range { background-color: #FFFFFF; }
+.range-label { color: #747B86; font-size: 12px; }
+.active-range-text { color: #1677F2; font-weight: 800; }
+.empty-mask { position: absolute; left: 0; right: 0; top: 0; bottom: 24px; align-items: center; justify-content: center; background-color: rgba(255,255,255,0.86); }
+.empty-text { color: #9BA1AA; font-size: 12px; }
+.up { color: #D94252; }
+.down { color: #18A875; }
+.flat { color: #737B86; }
+</style>
+
+

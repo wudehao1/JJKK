@@ -1,0 +1,731 @@
+<template>
+
+  <view class="page me-page" :class="themeMode === 'dark' ? 'dark-page dark-mode' : ''">
+
+    <view class="profile-card">
+
+      <button class="avatar-button" open-type="chooseAvatar" @chooseavatar="chooseAvatar">
+
+        <image v-if="avatarSrc" class="avatar" :src="avatarSrc" mode="aspectFill"></image>
+
+        <view v-else class="avatar placeholder">
+
+          <text class="placeholder-text">{{ avatarLetter }}</text>
+
+        </view>
+
+      </button>
+
+      <view class="profile-main">
+
+        <input class="nickname-input" type="nickname" v-model="profileNickname" placeholder="使用微信昵称" confirm-type="done" @blur="saveNickname" @confirm="saveNickname" />
+
+        <text class="profile-sub">已注册 {{ registeredDays }} 天</text>
+
+        <text class="profile-sub">用户号 {{ displayUserId }}</text>
+
+      </view>
+
+    </view>
+
+
+
+    <view class="stats-card">
+
+      <view class="stat-item">
+
+        <text class="stat-value">{{ registeredDays }}</text>
+
+        <text class="stat-label">注册天数</text>
+
+      </view>
+
+      <view class="stat-item">
+
+        <text class="stat-value">{{ createdText }}</text>
+
+        <text class="stat-label">注册日期</text>
+
+      </view>
+
+      <view class="stat-item">
+
+        <text class="stat-value">{{ loginText }}</text>
+
+        <text class="stat-label">最近登录</text>
+
+      </view>
+
+    </view>
+
+
+
+    <view class="menu-card">
+
+      <view class="menu-row" @click="toggleThemePanel">
+
+        <text class="menu-title">显示设置</text>
+
+        <text class="menu-value">{{ themeMode === 'dark' ? '深色模式' : '浅色模式' }}</text>
+
+      </view>
+
+      <view v-if="showThemePanel" class="theme-panel">
+
+        <view class="theme-option" :class="themeMode === 'light' ? 'theme-active' : ''" @click="setTheme('light')">
+
+          <text class="theme-text" :class="themeMode === 'light' ? 'theme-active-text' : ''">浅色模式</text>
+
+        </view>
+
+        <view class="theme-option" :class="themeMode === 'dark' ? 'theme-active' : ''" @click="setTheme('dark')">
+
+          <text class="theme-text" :class="themeMode === 'dark' ? 'theme-active-text' : ''">深色模式</text>
+
+        </view>
+
+      </view>
+
+      <view class="menu-row" @click="openFeedback">
+
+        <text class="menu-title">建议反馈</text>
+
+        <text class="menu-arrow">›</text>
+
+      </view>
+
+      <view class="menu-row" @click="openAccountInfo">
+
+        <text class="menu-title">账号信息</text>
+
+        <text class="menu-arrow">›</text>
+
+      </view>
+
+      <view class="menu-row" @click="openDisclaimer">
+
+        <text class="menu-title">免责声明</text>
+
+        <text class="menu-arrow">›</text>
+
+      </view>
+
+      <view class="menu-row last" @click="reLogin">
+
+        <text class="menu-title danger">重新登录</text>
+
+        <text class="menu-arrow">›</text>
+
+      </view>
+
+    </view>
+
+
+
+    <view v-if="showProfilePopup" class="popup-mask" @click="closeProfilePopup">
+
+      <view class="profile-panel" @click.stop>
+
+        <view class="feedback-head">
+
+          <text class="feedback-title">使用微信头像昵称</text>
+
+          <text class="feedback-close" @click="closeProfilePopup">以后再说</text>
+
+        </view>
+
+        <text class="profile-tip">微信需要你主动确认头像和昵称，保存后以后会自动显示。</text>
+
+        <button class="profile-avatar-button" open-type="chooseAvatar" @chooseavatar="chooseAvatar">
+
+          <image v-if="avatarSrc" class="profile-avatar" :src="avatarSrc" mode="aspectFill"></image>
+
+          <view v-else class="profile-avatar profile-avatar-empty">
+
+            <text class="profile-avatar-plus">+</text>
+
+          </view>
+
+          <text class="profile-avatar-text">选择微信头像</text>
+
+        </button>
+
+        <input class="profile-nickname-input" type="nickname" v-model="profileNickname" placeholder="点击使用微信昵称" confirm-type="done" />
+
+        <button class="submit-button" :loading="savingProfile" @click="saveProfilePopup">保存资料</button>
+
+      </view>
+
+    </view>
+
+
+
+    <view v-if="showFeedbackPopup" class="popup-mask" @click="closeFeedback">
+
+      <view class="feedback-panel" @click.stop>
+
+        <view class="feedback-head">
+
+          <text class="feedback-title">建议反馈</text>
+
+          <text class="feedback-close" @click="closeFeedback">关闭</text>
+
+        </view>
+
+        <view class="category-row">
+
+          <view class="category-pill" :class="feedback.category === '问题反馈' ? 'category-active' : ''" @click="feedback.category = '问题反馈'">
+
+            <text class="category-text" :class="feedback.category === '问题反馈' ? 'category-active-text' : ''">问题反馈</text>
+
+          </view>
+
+          <view class="category-pill" :class="feedback.category === '功能建议' ? 'category-active' : ''" @click="feedback.category = '功能建议'">
+
+            <text class="category-text" :class="feedback.category === '功能建议' ? 'category-active-text' : ''">功能建议</text>
+
+          </view>
+
+        </view>
+
+        <textarea class="feedback-textarea" v-model="feedback.content" maxlength="2000" placeholder="请填写问题、建议或希望新增的功能"></textarea>
+
+        <input class="feedback-input" v-model="feedback.contact" placeholder="联系方式（选填）" />
+
+        <button class="submit-button" :loading="submittingFeedback" @click="submitFeedbackForm">提交反馈</button>
+
+      </view>
+
+    </view>
+
+  </view>
+
+</template>
+
+
+
+<script>
+import { applyTheme, getThemeMode, setThemeMode } from '../../common/theme.js'
+import { API_BASE_URL, getCurrentUser, updateUserProfile, uploadUserAvatar, submitFeedback, clearAuthStorage, ensureUser } from '../../common/api.js'
+
+
+
+export default {
+
+  data() {
+
+    return {
+
+      user: null,
+
+      profileNickname: '',
+
+      themeMode: getThemeMode(),
+
+      showThemePanel: false,
+
+      showFeedbackPopup: false,
+
+      showProfilePopup: false,
+
+      savingProfile: false,
+
+      submittingFeedback: false,
+
+      feedback: {
+
+        category: '问题反馈',
+
+        content: '',
+
+        contact: ''
+
+      }
+
+    }
+
+  },
+
+  computed: {
+
+    nickname() {
+
+      return this.profileNickname || (this.user && this.user.nickname ? this.user.nickname : '基金快看用户')
+
+    },
+
+    avatarUrl() {
+
+      return this.user && this.user.avatarUrl ? this.user.avatarUrl : ''
+
+    },
+
+    avatarSrc() {
+
+      const value = this.avatarUrl
+
+      if (!value) return ''
+
+      if (value.indexOf('http://') === 0 || value.indexOf('https://') === 0) return value
+
+      return API_BASE_URL.replace(/\/$/, '') + (value.indexOf('/') === 0 ? value : '/' + value)
+
+    },
+
+    avatarLetter() {
+
+      return this.nickname ? this.nickname.slice(0, 1) : '基'
+
+    },
+
+    registeredDays() {
+
+      return this.user && this.user.registeredDays ? this.user.registeredDays : 1
+
+    },
+
+    displayUserId() {
+
+      if (this.user && this.user.displayUserId) return this.user.displayUserId
+
+      if (this.user && this.user.id) return String(100000000 + Number(this.user.id || 0))
+
+      return '---------'
+
+    },
+
+    createdText() {
+
+      return this.shortDate(this.user ? this.user.createdAt : '')
+
+    },
+
+    loginText() {
+
+      return this.shortDate(this.user ? this.user.lastLoginAt : '')
+
+    }
+
+  },
+
+  onShow() {
+
+    this.applyPageTheme()
+    this.applyPageTheme()
+    this.load()
+
+  },
+
+  methods: {
+    applyPageTheme() {
+      this.themeMode = getThemeMode()
+      applyTheme()
+    },
+    load() {
+
+      getCurrentUser().then((user) => {
+
+        this.user = user
+
+        this.profileNickname = user && user.nickname ? user.nickname : ''
+
+        this.maybeOpenProfilePopup()
+
+      })
+
+    },
+
+    maybeOpenProfilePopup() {
+
+      if (uni.getStorageSync('jk_profile_prompt_closed') === '1') return
+
+      const nickname = this.user && this.user.nickname ? this.user.nickname : ''
+
+      const missingNickname = !nickname || nickname === '基金快看用户' || nickname.indexOf('基金快看') >= 0
+
+      if (!this.avatarUrl || missingNickname) {
+
+        this.showProfilePopup = true
+
+      }
+
+    },
+
+    closeProfilePopup() {
+
+      this.showProfilePopup = false
+
+      uni.setStorageSync('jk_profile_prompt_closed', '1')
+
+    },
+
+    chooseAvatar(event) {
+
+      const avatarUrl = event && event.detail ? event.detail.avatarUrl : ''
+
+      if (!avatarUrl) {
+
+        uni.showToast({ title: '没有选择头像', icon: 'none' })
+
+        return
+
+      }
+
+      ensureUser().then((userId) => uploadUserAvatar(userId, avatarUrl)).then((user) => {
+
+        this.user = user
+
+        uni.showToast({ title: '头像已保存', icon: 'success' })
+
+      })
+
+    },
+
+    saveNickname() {
+
+      const nickname = (this.profileNickname || '').trim()
+
+      if (!nickname) return
+
+      if (this.user && nickname === this.user.nickname) return
+
+      updateUserProfile({ nickname }).then((user) => {
+
+        this.user = user
+
+        this.profileNickname = user && user.nickname ? user.nickname : nickname
+
+        uni.showToast({ title: '昵称已保存', icon: 'none' })
+
+      })
+
+    },
+
+    saveProfilePopup() {
+
+      const nickname = (this.profileNickname || '').trim()
+
+      if (!nickname) {
+
+        uni.showToast({ title: '请填写昵称', icon: 'none' })
+
+        return
+
+      }
+
+      this.savingProfile = true
+
+      updateUserProfile({ nickname }).then((user) => {
+
+        this.user = user
+
+        this.profileNickname = user && user.nickname ? user.nickname : nickname
+
+        this.closeProfilePopup()
+
+        uni.showToast({ title: '资料已保存', icon: 'success' })
+
+      }).finally(() => {
+
+        this.savingProfile = false
+
+      })
+
+    },
+
+    toggleThemePanel() {
+
+      this.showThemePanel = !this.showThemePanel
+
+    },
+
+    setTheme(mode) {
+
+      this.themeMode = setThemeMode(mode)
+
+      uni.showToast({ title: mode === 'dark' ? '已切换深色模式' : '已切换浅色模式', icon: 'none' })
+
+    },
+
+    openFeedback() {
+
+      this.showFeedbackPopup = true
+
+    },
+
+    closeFeedback() {
+
+      this.showFeedbackPopup = false
+
+    },
+
+    submitFeedbackForm() {
+
+      const content = (this.feedback.content || '').trim()
+
+      if (!content) {
+
+        uni.showToast({ title: '请先填写反馈内容', icon: 'none' })
+
+        return
+
+      }
+
+      this.submittingFeedback = true
+
+      let deviceInfo = ''
+
+      try {
+
+        const info = (() => {
+          if (uni.getWindowInfo) return uni.getWindowInfo()
+          if (typeof wx !== 'undefined' && wx.getWindowInfo) return wx.getWindowInfo()
+          return uni.getSystemInfoSync ? uni.getSystemInfoSync() : {}
+        })()
+
+        deviceInfo = JSON.stringify(info)
+
+      } catch (error) {
+
+        deviceInfo = ''
+
+      }
+
+      submitFeedback({
+
+        category: this.feedback.category,
+
+        content,
+
+        contact: this.feedback.contact,
+
+        deviceInfo
+
+      }).then(() => {
+
+        uni.showToast({ title: '反馈已提交', icon: 'success' })
+
+        this.feedback.content = ''
+
+        this.feedback.contact = ''
+
+        this.showFeedbackPopup = false
+
+      }).finally(() => {
+
+        this.submittingFeedback = false
+
+      })
+
+    },
+
+    openAccountInfo() {
+
+      uni.showModal({
+
+        title: '账号信息',
+
+        content: '用户号：' + this.displayUserId + '\n注册日期：' + this.createdText + '\n最近登录：' + this.loginText,
+
+        showCancel: false
+
+      })
+
+    },
+
+    openDisclaimer() {
+
+      uni.showModal({
+
+        title: '免责声明',
+
+        content: '基金估算和资讯仅供参考，不构成投资建议。实际净值、公告和交易结果以基金公司及销售平台公布为准。',
+
+        showCancel: false
+
+      })
+
+    },
+
+    reLogin() {
+
+      uni.showModal({
+
+        title: '重新登录',
+
+        content: '会清除本机登录态并重新向微信获取登录凭证。',
+
+        success: (res) => {
+
+          if (!res.confirm) return
+
+          clearAuthStorage()
+
+          uni.removeStorageSync('jk_profile_prompt_closed')
+
+          ensureUser().then(() => this.load())
+
+        }
+
+      })
+
+    },
+
+    shortDate(value) {
+
+      if (!value) return '--'
+
+      return String(value).replace('T', ' ').slice(0, 10)
+
+    }
+
+  }
+
+}
+
+</script>
+
+
+
+<style>
+
+.me-page { min-height: 100%; padding: 12px; background-color: #F4F6FA; }
+
+.profile-card { padding: 16px; border-radius: 8px; background: linear-gradient(135deg, #1BA7FF 0%, #1677F2 82%); flex-direction: row; align-items: center; }
+
+.avatar-button { width: 58px; height: 58px; margin: 0; padding: 0; border-radius: 29px; background-color: transparent; overflow: hidden; }
+
+.avatar-button::after { border-width: 0; }
+
+.avatar { width: 58px; height: 58px; border-radius: 29px; background-color: rgba(255,255,255,0.22); }
+
+.placeholder { align-items: center; justify-content: center; }
+
+.placeholder-text { color: #FFFFFF; font-size: 24px; font-weight: 800; }
+
+.profile-main { flex: 1; min-width: 0; padding-left: 12px; }
+
+.nickname-input { height: 28px; color: #FFFFFF; font-size: 18px; font-weight: 800; }
+
+.profile-sub { display: block; margin-top: 5px; color: rgba(255,255,255,0.82); font-size: 11px; }
+
+.stats-card { margin-top: 10px; padding: 12px 6px; border-radius: 8px; background-color: #FFFFFF; flex-direction: row; }
+
+.stat-item { flex: 1; align-items: center; justify-content: center; }
+
+.stat-value { color: #1F2937; font-size: 14px; font-weight: 800; text-align: center; }
+
+.stat-label { display: block; margin-top: 5px; color: #98A2B3; font-size: 11px; text-align: center; }
+
+.menu-card { margin-top: 10px; border-radius: 8px; background-color: #FFFFFF; overflow: hidden; }
+
+.menu-row { min-height: 48px; padding: 0 14px; border-bottom: 1px solid #F0F2F6; flex-direction: row; align-items: center; justify-content: space-between; }
+
+.last { border-bottom-width: 0; }
+
+.menu-title { color: #1F2937; font-size: 14px; font-weight: 700; }
+
+.menu-value { color: #667085; font-size: 13px; }
+
+.danger { color: #D94252; }
+
+.menu-arrow { color: #98A2B3; font-size: 23px; }
+
+.theme-panel { padding: 8px 10px 12px; border-bottom: 1px solid #F0F2F6; flex-direction: row; }
+
+.theme-option { flex: 1; height: 34px; margin: 0 4px; border-radius: 6px; background-color: #F4F6FA; align-items: center; justify-content: center; }
+
+.theme-active { background-color: #EAF2FF; }
+
+.theme-text { color: #667085; font-size: 13px; font-weight: 700; }
+
+.theme-active-text { color: #1677F2; }
+
+.popup-mask { position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 100; background-color: rgba(20,26,36,0.42); }
+
+.profile-panel,
+
+.feedback-panel { position: absolute; left: 12px; right: 12px; bottom: 18px; padding: 14px; border-radius: 8px; background-color: #FFFFFF; }
+
+.feedback-head { height: 32px; flex-direction: row; align-items: center; justify-content: space-between; }
+
+.feedback-title { color: #1F2937; font-size: 16px; font-weight: 800; }
+
+.feedback-close { color: #1677F2; font-size: 13px; font-weight: 800; }
+
+.profile-tip { display: block; margin-top: 6px; color: #667085; font-size: 12px; line-height: 18px; }
+
+.profile-avatar-button { margin-top: 12px; height: 64px; padding: 0 10px; border-radius: 8px; background-color: #F4F6FA; flex-direction: row; align-items: center; }
+
+.profile-avatar-button::after { border-width: 0; }
+
+.profile-avatar { width: 46px; height: 46px; border-radius: 23px; background-color: #EAF2FF; }
+
+.profile-avatar-empty { align-items: center; justify-content: center; }
+
+.profile-avatar-plus { color: #1677F2; font-size: 24px; font-weight: 800; }
+
+.profile-avatar-text { margin-left: 12px; color: #1F2937; font-size: 14px; font-weight: 800; }
+
+.profile-nickname-input { margin-top: 10px; height: 42px; padding: 0 10px; border-radius: 8px; background-color: #F4F6FA; color: #1F2937; font-size: 14px; }
+
+.category-row { margin-top: 8px; flex-direction: row; }
+
+.category-pill { height: 30px; padding: 0 12px; margin-right: 8px; border-radius: 15px; background-color: #F4F6FA; align-items: center; justify-content: center; }
+
+.category-active { background-color: #EAF2FF; }
+
+.category-text { color: #667085; font-size: 12px; font-weight: 700; }
+
+.category-active-text { color: #1677F2; }
+
+.feedback-textarea { margin-top: 10px; width: 100%; min-height: 120px; padding: 10px; border-radius: 6px; background-color: #F4F6FA; color: #1F2937; font-size: 13px; line-height: 20px; box-sizing: border-box; }
+
+.feedback-input { margin-top: 9px; height: 38px; padding: 0 10px; border-radius: 6px; background-color: #F4F6FA; color: #1F2937; font-size: 13px; }
+
+.submit-button { margin-top: 12px; height: 40px; line-height: 40px; border-radius: 6px; background-color: #1677F2; color: #FFFFFF; font-size: 14px; font-weight: 800; }
+
+.dark-mode { background-color: #111827; }
+
+.dark-mode .stats-card,
+
+.dark-mode .menu-card,
+
+.dark-mode .profile-panel,
+
+.dark-mode .feedback-panel { background-color: #1F2937; }
+
+.dark-mode .menu-row,
+
+.dark-mode .theme-panel { border-bottom-color: #374151; }
+
+.dark-mode .stat-value,
+
+.dark-mode .menu-title,
+
+.dark-mode .feedback-title,
+
+.dark-mode .profile-avatar-text { color: #F9FAFB; }
+
+.dark-mode .stat-label,
+
+.dark-mode .menu-value,
+
+.dark-mode .menu-arrow,
+
+.dark-mode .profile-tip { color: #A7B0BE; }
+
+.dark-mode .theme-option,
+
+.dark-mode .profile-avatar-button,
+
+.dark-mode .profile-nickname-input,
+
+.dark-mode .feedback-textarea,
+
+.dark-mode .feedback-input,
+
+.dark-mode .category-pill { background-color: #111827; color: #F9FAFB; }
+
+</style>
+

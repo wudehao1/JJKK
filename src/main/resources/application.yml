@@ -1,0 +1,48 @@
+spring:
+  application:
+    name: JJKK_2
+  datasource:
+    url: ${JJKK_DB_URL:jdbc:mysql://localhost:3306/fund_quick_look_jk?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
+    username: ${JJKK_DB_USERNAME:root}
+    password: ${JJKK_DB_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: ${JJKK_DB_POOL_MAX:16}
+      minimum-idle: ${JJKK_DB_POOL_MIN:4}
+  data:
+    redis:
+      host: ${JJKK_REDIS_HOST:localhost}
+      port: ${JJKK_REDIS_PORT:6379}
+      password: ${JJKK_REDIS_PASSWORD:123456}
+      database: ${JJKK_REDIS_DATABASE:0}
+      timeout: 2s
+
+server:
+  port: ${JJKK_SERVER_PORT:8080}
+  servlet:
+    context-path: /api
+
+logging:
+  level:
+    com.wdh.jjkk_2: debug
+
+jjkk:
+  auth:
+    token-ttl-days: ${JJKK_AUTH_TOKEN_TTL_DAYS:7}
+    allow-dev-login: ${JJKK_AUTH_ALLOW_DEV_LOGIN:false}
+  wechat:
+    app-id: ${JJKK_WECHAT_APP_ID:}
+    app-secret: ${JJKK_WECHAT_APP_SECRET:}
+  official:
+    csrc:
+      product-index-page-url: ${JJKK_CSRC_PRODUCT_INDEX_PAGE_URL:https://www.csrc.gov.cn/csrc/c101900/c1029655/content.shtml}
+  upload:
+    avatar-dir: ${JJKK_UPLOAD_AVATAR_DIR:uploads/avatars}
+  feedback:
+    log-dir: ${JJKK_FEEDBACK_LOG_DIR:logs/feedback}
+  fund:
+    minute-refresh-limit: ${JJKK_FUND_MINUTE_REFRESH_LIMIT:1200}
+    refresh-parallelism: ${JJKK_FUND_REFRESH_PARALLELISM:6}
+    refresh-batch-size: ${JJKK_FUND_REFRESH_BATCH_SIZE:180}
+    delayed-lag-seconds: ${JJKK_FUND_DELAYED_LAG_SECONDS:180}
+    error-lag-seconds: ${JJKK_FUND_ERROR_LAG_SECONDS:900}

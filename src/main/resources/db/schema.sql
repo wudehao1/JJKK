@@ -1,0 +1,800 @@
+CREATE DATABASE IF NOT EXISTS fund_quick_look_jk
+  DEFAULT CHARACTER SET utf8mb4
+  DEFAULT COLLATE utf8mb4_unicode_ci;
+
+USE fund_quick_look_jk;
+
+CREATE TABLE IF NOT EXISTS data_source (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  source_code VARCHAR(64) NOT NULL COMMENT '数据源编码',
+  source_name VARCHAR(128) NOT NULL COMMENT '数据源名称',
+  source_type ENUM('OFFICIAL_DISCLOSURE','FUND_COMPANY','EXCHANGE','MARKET_VENDOR','THIRD_PARTY','MANUAL') NOT NULL COMMENT '数据源类型',
+  trust_level TINYINT UNSIGNED NOT NULL DEFAULT 3 COMMENT '可信级别：1最高，5最低',
+  license_status ENUM('UNKNOWN','AUTHORIZED','PUBLIC','INTERNAL','FORBIDDEN') NOT NULL DEFAULT 'UNKNOWN' COMMENT '授权状态',
+  base_url VARCHAR(512) DEFAULT NULL COMMENT '基础地址',
+  contact_info VARCHAR(255) DEFAULT NULL COMMENT '联系人或说明',
+  priority INT NOT NULL DEFAULT 100 COMMENT '采集优先级，数值越小越优先',
+  enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  remark VARCHAR(512) DEFAULT NULL COMMENT '备注',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_data_source_code (source_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据源配置';
+
+CREATE TABLE IF NOT EXISTS data_import_batch (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  source_id BIGINT UNSIGNED NOT NULL COMMENT '数据源ID',
+  batch_no VARCHAR(64) NOT NULL COMMENT '批次号',
+  job_name VARCHAR(128) NOT NULL COMMENT '任务名称',
+  data_domain ENUM('FUND_BASIC','FUND_NAV','FUND_REPORT','FUND_POSITION','MARKET_QUOTE','SECTOR','OTHER') NOT NULL COMMENT '数据域',
+  started_at DATETIME(3) NOT NULL COMMENT '开始时间',
+  ended_at DATETIME(3) DEFAULT NULL COMMENT '结束时间',
+  status ENUM('RUNNING','SUCCESS','PARTIAL','FAILED') NOT NULL DEFAULT 'RUNNING' COMMENT '批次状态',
+  total_count INT NOT NULL DEFAULT 0 COMMENT '总记录数',
+  success_count INT NOT NULL DEFAULT 0 COMMENT '成功数',
+  fail_count INT NOT NULL DEFAULT 0 COMMENT '失败数',
+  checksum VARCHAR(128) DEFAULT NULL COMMENT '原始文件或结果校验值',
+  error_message TEXT DEFAULT NULL COMMENT '错误信息',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_import_batch_no (batch_no),
+  KEY idx_import_source_domain (source_id, data_domain, started_at),
+  CONSTRAINT fk_import_batch_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据导入批次';
+
+CREATE TABLE IF NOT EXISTS fund_company (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  company_code VARCHAR(64) DEFAULT NULL COMMENT '基金公司编码',
+  company_name VARCHAR(128) NOT NULL COMMENT '基金公司全称',
+  company_short_name VARCHAR(64) DEFAULT NULL COMMENT '基金公司简称',
+  company_type ENUM('FUND_MANAGER','FUND_SUBSIDIARY','OTHER') NOT NULL DEFAULT 'FUND_MANAGER' COMMENT '公司类型',
+  established_date DATE DEFAULT NULL COMMENT '成立日期',
+  registered_capital DECIMAL(20,4) DEFAULT NULL COMMENT '注册资本',
+  official_site_url VARCHAR(512) DEFAULT NULL COMMENT '官网',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  source_updated_at DATETIME(3) DEFAULT NULL COMMENT '来源更新时间',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_fund_company_code (company_code),
+  UNIQUE KEY uk_fund_company_name (company_name),
+  KEY idx_company_source (source_id),
+  CONSTRAINT fk_company_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金管理人/基金公司';
+
+CREATE TABLE IF NOT EXISTS fund_custodian (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  custodian_code VARCHAR(64) DEFAULT NULL COMMENT '托管人编码',
+  custodian_name VARCHAR(128) NOT NULL COMMENT '托管人全称',
+  custodian_short_name VARCHAR(64) DEFAULT NULL COMMENT '托管人简称',
+  official_site_url VARCHAR(512) DEFAULT NULL COMMENT '官网',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  source_updated_at DATETIME(3) DEFAULT NULL COMMENT '来源更新时间',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_fund_custodian_code (custodian_code),
+  UNIQUE KEY uk_fund_custodian_name (custodian_name),
+  KEY idx_custodian_source (source_id),
+  CONSTRAINT fk_custodian_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金托管人';
+
+CREATE TABLE IF NOT EXISTS fund_product (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  main_fund_code CHAR(6) DEFAULT NULL COMMENT '主基金代码或代表份额代码',
+  fund_name VARCHAR(200) NOT NULL COMMENT '基金产品名称',
+  fund_short_name VARCHAR(128) DEFAULT NULL COMMENT '基金简称',
+  fund_full_name VARCHAR(255) DEFAULT NULL COMMENT '基金全称',
+  pinyin_abbr VARCHAR(64) DEFAULT NULL COMMENT '拼音缩写',
+  fund_type ENUM('STOCK','MIXED','BOND','INDEX','QDII','FOF','MONEY_MARKET','COMMODITY','REIT','OTHER') NOT NULL DEFAULT 'OTHER' COMMENT '基金类型',
+  investment_style VARCHAR(64) DEFAULT NULL COMMENT '投资风格',
+  operation_mode ENUM('OPEN','CLOSED','REGULAR_OPEN','ETF_LINK','LOF','OTHER') NOT NULL DEFAULT 'OPEN' COMMENT '运作方式',
+  risk_level VARCHAR(32) DEFAULT NULL COMMENT '风险等级',
+  currency CHAR(3) NOT NULL DEFAULT 'CNY' COMMENT '币种',
+  inception_date DATE DEFAULT NULL COMMENT '基金合同生效日',
+  termination_date DATE DEFAULT NULL COMMENT '终止日期',
+  company_id BIGINT UNSIGNED DEFAULT NULL COMMENT '基金管理人ID',
+  custodian_id BIGINT UNSIGNED DEFAULT NULL COMMENT '托管人ID',
+  benchmark VARCHAR(1000) DEFAULT NULL COMMENT '业绩比较基准',
+  tracking_index_code VARCHAR(32) DEFAULT NULL COMMENT '跟踪指数代码',
+  is_index_fund TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否指数基金',
+  is_qdii TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否QDII',
+  is_fof TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否FOF',
+  is_reit TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否REIT',
+  status ENUM('RAISING','ACTIVE','SUSPENDED','TERMINATED','LIQUIDATING') NOT NULL DEFAULT 'ACTIVE' COMMENT '产品状态',
+  official_url VARCHAR(512) DEFAULT NULL COMMENT '官方页面',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  source_updated_at DATETIME(3) DEFAULT NULL COMMENT '来源更新时间',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_product_main_code (main_fund_code),
+  KEY idx_product_name (fund_name),
+  KEY idx_product_type_status (fund_type, status),
+  KEY idx_product_company (company_id),
+  KEY idx_product_custodian (custodian_id),
+  KEY idx_product_source (source_id),
+  CONSTRAINT fk_product_company FOREIGN KEY (company_id) REFERENCES fund_company (id),
+  CONSTRAINT fk_product_custodian FOREIGN KEY (custodian_id) REFERENCES fund_custodian (id),
+  CONSTRAINT fk_product_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金产品主档';
+
+CREATE TABLE IF NOT EXISTS fund_share_class (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  product_id BIGINT UNSIGNED NOT NULL COMMENT '基金产品ID',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  share_class_code VARCHAR(16) DEFAULT NULL COMMENT '份额类别，如A/C/E',
+  fund_name VARCHAR(200) NOT NULL COMMENT '该份额展示名称',
+  fund_abbr VARCHAR(128) DEFAULT NULL COMMENT '展示简称',
+  pinyin_abbr VARCHAR(64) DEFAULT NULL COMMENT '拼音缩写',
+  purchase_status ENUM('OPEN','SUSPENDED','CLOSED','LIMITED','UNKNOWN') NOT NULL DEFAULT 'UNKNOWN' COMMENT '申购状态',
+  redeem_status ENUM('OPEN','SUSPENDED','CLOSED','UNKNOWN') NOT NULL DEFAULT 'UNKNOWN' COMMENT '赎回状态',
+  dividend_method ENUM('CASH','REINVEST','BOTH','UNKNOWN') NOT NULL DEFAULT 'UNKNOWN' COMMENT '分红方式',
+  min_purchase_amount DECIMAL(18,2) DEFAULT NULL COMMENT '最低申购金额',
+  min_redeem_share DECIMAL(18,4) DEFAULT NULL COMMENT '最低赎回份额',
+  sales_service_fee_rate DECIMAL(10,6) DEFAULT NULL COMMENT '销售服务费率',
+  management_fee_rate DECIMAL(10,6) DEFAULT NULL COMMENT '管理费率',
+  custodian_fee_rate DECIMAL(10,6) DEFAULT NULL COMMENT '托管费率',
+  status ENUM('ACTIVE','SUSPENDED','TERMINATED') NOT NULL DEFAULT 'ACTIVE' COMMENT '份额状态',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  source_updated_at DATETIME(3) DEFAULT NULL COMMENT '来源更新时间',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_share_fund_code (fund_code),
+  UNIQUE KEY uk_share_product_class (product_id, share_class_code),
+  KEY idx_share_name (fund_name),
+  KEY idx_share_status (status),
+  KEY idx_share_source (source_id),
+  CONSTRAINT fk_share_product FOREIGN KEY (product_id) REFERENCES fund_product (id),
+  CONSTRAINT fk_share_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金份额类别';
+
+CREATE TABLE IF NOT EXISTS fund_manager (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  manager_code VARCHAR(64) DEFAULT NULL COMMENT '基金经理编码',
+  manager_name VARCHAR(64) NOT NULL COMMENT '基金经理姓名',
+  company_id BIGINT UNSIGNED DEFAULT NULL COMMENT '所属基金公司ID',
+  start_career_date DATE DEFAULT NULL COMMENT '从业开始日期',
+  resume TEXT DEFAULT NULL COMMENT '公开履历',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  source_updated_at DATETIME(3) DEFAULT NULL COMMENT '来源更新时间',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_manager_code (manager_code),
+  KEY idx_manager_name (manager_name),
+  KEY idx_manager_company (company_id),
+  KEY idx_manager_source (source_id),
+  CONSTRAINT fk_manager_company FOREIGN KEY (company_id) REFERENCES fund_company (id),
+  CONSTRAINT fk_manager_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金经理';
+
+CREATE TABLE IF NOT EXISTS fund_manager_appointment (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  product_id BIGINT UNSIGNED NOT NULL COMMENT '基金产品ID',
+  manager_id BIGINT UNSIGNED NOT NULL COMMENT '基金经理ID',
+  role_name VARCHAR(64) DEFAULT NULL COMMENT '角色',
+  start_date DATE NOT NULL COMMENT '任职开始日期',
+  end_date DATE DEFAULT NULL COMMENT '任职结束日期',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_manager_appointment (product_id, manager_id, start_date),
+  KEY idx_appointment_manager (manager_id),
+  KEY idx_appointment_date (start_date, end_date),
+  KEY idx_appointment_source (source_id),
+  CONSTRAINT fk_appointment_product FOREIGN KEY (product_id) REFERENCES fund_product (id),
+  CONSTRAINT fk_appointment_manager FOREIGN KEY (manager_id) REFERENCES fund_manager (id),
+  CONSTRAINT fk_appointment_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金经理任职关系';
+
+CREATE TABLE IF NOT EXISTS fund_nav_daily (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  nav_date DATE NOT NULL COMMENT '净值日期',
+  unit_nav DECIMAL(18,6) DEFAULT NULL COMMENT '单位净值',
+  accumulated_nav DECIMAL(18,6) DEFAULT NULL COMMENT '累计净值',
+  daily_return_pct DECIMAL(10,6) DEFAULT NULL COMMENT '日涨跌幅，百分比',
+  weekly_return_pct DECIMAL(10,6) DEFAULT NULL COMMENT '周涨跌幅，百分比',
+  monthly_return_pct DECIMAL(10,6) DEFAULT NULL COMMENT '月涨跌幅，百分比',
+  subscription_status VARCHAR(64) DEFAULT NULL COMMENT '申购状态文本',
+  redemption_status VARCHAR(64) DEFAULT NULL COMMENT '赎回状态文本',
+  dividend_per_unit DECIMAL(18,6) DEFAULT NULL COMMENT '当日单位分红',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  source_updated_at DATETIME(3) DEFAULT NULL COMMENT '来源更新时间',
+  import_batch_id BIGINT UNSIGNED DEFAULT NULL COMMENT '导入批次ID',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_nav_fund_date (fund_code, nav_date),
+  KEY idx_nav_date (nav_date),
+  KEY idx_nav_return (daily_return_pct),
+  KEY idx_nav_source (source_id),
+  KEY idx_nav_batch (import_batch_id),
+  CONSTRAINT fk_nav_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code),
+  CONSTRAINT fk_nav_source FOREIGN KEY (source_id) REFERENCES data_source (id),
+  CONSTRAINT fk_nav_batch FOREIGN KEY (import_batch_id) REFERENCES data_import_batch (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金每日官方净值';
+
+CREATE TABLE IF NOT EXISTS fund_dividend (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  announcement_date DATE DEFAULT NULL COMMENT '公告日',
+  registration_date DATE DEFAULT NULL COMMENT '权益登记日',
+  ex_dividend_date DATE DEFAULT NULL COMMENT '除息日',
+  payment_date DATE DEFAULT NULL COMMENT '派息日',
+  dividend_per_10_units DECIMAL(18,6) NOT NULL COMMENT '每10份分红',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  import_batch_id BIGINT UNSIGNED DEFAULT NULL COMMENT '导入批次ID',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_dividend_fund_exdate (fund_code, ex_dividend_date, dividend_per_10_units),
+  KEY idx_dividend_date (announcement_date, ex_dividend_date),
+  KEY idx_dividend_source (source_id),
+  KEY idx_dividend_batch (import_batch_id),
+  CONSTRAINT fk_dividend_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code),
+  CONSTRAINT fk_dividend_source FOREIGN KEY (source_id) REFERENCES data_source (id),
+  CONSTRAINT fk_dividend_batch FOREIGN KEY (import_batch_id) REFERENCES data_import_batch (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金分红记录';
+
+CREATE TABLE IF NOT EXISTS fund_fee_rule (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  share_class_id BIGINT UNSIGNED NOT NULL COMMENT '基金份额ID',
+  fee_type ENUM('SUBSCRIPTION','PURCHASE','REDEMPTION','MANAGEMENT','CUSTODIAN','SALES_SERVICE','OTHER') NOT NULL COMMENT '费率类型',
+  amount_min DECIMAL(18,2) DEFAULT NULL COMMENT '金额下限',
+  amount_max DECIMAL(18,2) DEFAULT NULL COMMENT '金额上限',
+  holding_days_min INT DEFAULT NULL COMMENT '持有天数下限',
+  holding_days_max INT DEFAULT NULL COMMENT '持有天数上限',
+  rate DECIMAL(10,6) DEFAULT NULL COMMENT '费率',
+  fixed_fee DECIMAL(18,2) DEFAULT NULL COMMENT '固定费用',
+  effective_from DATE DEFAULT NULL COMMENT '生效开始',
+  effective_to DATE DEFAULT NULL COMMENT '生效结束',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  KEY idx_fee_share_type (share_class_id, fee_type),
+  KEY idx_fee_source (source_id),
+  CONSTRAINT fk_fee_share FOREIGN KEY (share_class_id) REFERENCES fund_share_class (id),
+  CONSTRAINT fk_fee_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金费率规则';
+
+CREATE TABLE IF NOT EXISTS security_instrument (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  market ENUM('SSE','SZSE','BSE','HKEX','NASDAQ','NYSE','AMEX','CFFEX','SHFE','DCE','CZCE','INE','INDEX','FX','OTHER') NOT NULL COMMENT '市场',
+  symbol VARCHAR(32) NOT NULL COMMENT '证券/指数/汇率代码',
+  instrument_name VARCHAR(128) NOT NULL COMMENT '名称',
+  instrument_type ENUM('STOCK','BOND','INDEX','ETF','FUTURE','FX','FUND','REIT','OTHER') NOT NULL DEFAULT 'OTHER' COMMENT '标的类型',
+  currency CHAR(3) NOT NULL DEFAULT 'CNY' COMMENT '币种',
+  exchange_code VARCHAR(32) DEFAULT NULL COMMENT '交易所代码',
+  industry_code VARCHAR(64) DEFAULT NULL COMMENT '行业代码',
+  sector_code VARCHAR(64) DEFAULT NULL COMMENT '板块代码',
+  listed_date DATE DEFAULT NULL COMMENT '上市日期',
+  delisted_date DATE DEFAULT NULL COMMENT '退市日期',
+  enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  source_updated_at DATETIME(3) DEFAULT NULL COMMENT '来源更新时间',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_instrument_market_symbol (market, symbol),
+  KEY idx_instrument_type (instrument_type),
+  KEY idx_instrument_industry (industry_code),
+  KEY idx_instrument_source (source_id),
+  CONSTRAINT fk_instrument_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='行情标的主档';
+
+CREATE TABLE IF NOT EXISTS market_trading_calendar (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  market VARCHAR(32) NOT NULL COMMENT '市场',
+  trading_day DATE NOT NULL COMMENT '交易日',
+  is_open TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否开市',
+  open_time TIME DEFAULT NULL COMMENT '开市时间',
+  close_time TIME DEFAULT NULL COMMENT '收市时间',
+  day_type VARCHAR(64) DEFAULT NULL COMMENT '交易日类型',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_calendar_market_day (market, trading_day),
+  KEY idx_calendar_day (trading_day, is_open),
+  KEY idx_calendar_source (source_id),
+  CONSTRAINT fk_calendar_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='交易日历';
+
+CREATE TABLE IF NOT EXISTS market_quote_latest (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  instrument_id BIGINT UNSIGNED NOT NULL COMMENT '行情标的ID',
+  trading_day DATE NOT NULL COMMENT '交易日',
+  quote_time DATETIME(3) NOT NULL COMMENT '行情时间',
+  last_price DECIMAL(20,6) DEFAULT NULL COMMENT '最新价',
+  prev_close DECIMAL(20,6) DEFAULT NULL COMMENT '昨收',
+  open_price DECIMAL(20,6) DEFAULT NULL COMMENT '开盘价',
+  high_price DECIMAL(20,6) DEFAULT NULL COMMENT '最高价',
+  low_price DECIMAL(20,6) DEFAULT NULL COMMENT '最低价',
+  change_amount DECIMAL(20,6) DEFAULT NULL COMMENT '涨跌额',
+  change_pct DECIMAL(10,6) DEFAULT NULL COMMENT '涨跌幅，百分比',
+  volume DECIMAL(24,4) DEFAULT NULL COMMENT '成交量',
+  turnover DECIMAL(24,4) DEFAULT NULL COMMENT '成交额',
+  data_lag_seconds INT DEFAULT NULL COMMENT '数据延迟秒数',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_quote_latest_instrument (instrument_id),
+  KEY idx_quote_latest_day (trading_day, quote_time),
+  KEY idx_quote_latest_source (source_id),
+  CONSTRAINT fk_quote_latest_instrument FOREIGN KEY (instrument_id) REFERENCES security_instrument (id),
+  CONSTRAINT fk_quote_latest_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='最新行情快照，Redis为主，MySQL用于恢复';
+
+CREATE TABLE IF NOT EXISTS market_quote_minute (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  instrument_id BIGINT UNSIGNED NOT NULL COMMENT '行情标的ID',
+  trading_day DATE NOT NULL COMMENT '交易日',
+  quote_time DATETIME(3) NOT NULL COMMENT '分钟行情时间',
+  open_price DECIMAL(20,6) DEFAULT NULL COMMENT '开盘价',
+  high_price DECIMAL(20,6) DEFAULT NULL COMMENT '最高价',
+  low_price DECIMAL(20,6) DEFAULT NULL COMMENT '最低价',
+  close_price DECIMAL(20,6) DEFAULT NULL COMMENT '收盘价',
+  prev_close DECIMAL(20,6) DEFAULT NULL COMMENT '昨收',
+  change_pct DECIMAL(10,6) DEFAULT NULL COMMENT '涨跌幅，百分比',
+  volume DECIMAL(24,4) DEFAULT NULL COMMENT '成交量',
+  turnover DECIMAL(24,4) DEFAULT NULL COMMENT '成交额',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_quote_minute (instrument_id, quote_time),
+  KEY idx_quote_minute_day (trading_day, quote_time),
+  KEY idx_quote_minute_source (source_id),
+  CONSTRAINT fk_quote_minute_instrument FOREIGN KEY (instrument_id) REFERENCES security_instrument (id),
+  CONSTRAINT fk_quote_minute_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='分钟行情，建议只保留活跃标的并设置归档策略';
+
+CREATE TABLE IF NOT EXISTS fund_disclosure_report (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  product_id BIGINT UNSIGNED NOT NULL COMMENT '基金产品ID',
+  report_type ENUM('QUARTER','HALF_YEAR','YEAR','TEMP','OTHER') NOT NULL COMMENT '报告类型',
+  report_period VARCHAR(32) NOT NULL COMMENT '报告期，如2026Q1',
+  report_date DATE DEFAULT NULL COMMENT '报告截止日',
+  publish_date DATE DEFAULT NULL COMMENT '发布日期',
+  title VARCHAR(255) DEFAULT NULL COMMENT '报告标题',
+  file_url VARCHAR(512) DEFAULT NULL COMMENT '报告文件地址',
+  file_hash VARCHAR(128) DEFAULT NULL COMMENT '文件哈希',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源页面',
+  import_batch_id BIGINT UNSIGNED DEFAULT NULL COMMENT '导入批次ID',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_report_product_period_type (product_id, report_period, report_type),
+  KEY idx_report_publish (publish_date),
+  KEY idx_report_source (source_id),
+  KEY idx_report_batch (import_batch_id),
+  CONSTRAINT fk_report_product FOREIGN KEY (product_id) REFERENCES fund_product (id),
+  CONSTRAINT fk_report_source FOREIGN KEY (source_id) REFERENCES data_source (id),
+  CONSTRAINT fk_report_batch FOREIGN KEY (import_batch_id) REFERENCES data_import_batch (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金披露报告';
+
+CREATE TABLE IF NOT EXISTS fund_asset_allocation (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  report_id BIGINT UNSIGNED NOT NULL COMMENT '披露报告ID',
+  asset_type ENUM('STOCK','BOND','CASH','FUND','DERIVATIVE','METAL','REIT','OTHER') NOT NULL COMMENT '资产类型',
+  market_value DECIMAL(24,4) DEFAULT NULL COMMENT '市值',
+  nav_ratio DECIMAL(10,6) DEFAULT NULL COMMENT '占基金净值比例，百分比',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_asset_allocation (report_id, asset_type),
+  KEY idx_asset_type (asset_type),
+  CONSTRAINT fk_asset_allocation_report FOREIGN KEY (report_id) REFERENCES fund_disclosure_report (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金资产配置';
+
+CREATE TABLE IF NOT EXISTS fund_industry_allocation (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  report_id BIGINT UNSIGNED NOT NULL COMMENT '披露报告ID',
+  industry_standard VARCHAR(64) DEFAULT NULL COMMENT '行业分类标准',
+  industry_code VARCHAR(64) DEFAULT NULL COMMENT '行业代码',
+  industry_name VARCHAR(128) NOT NULL COMMENT '行业名称',
+  market_value DECIMAL(24,4) DEFAULT NULL COMMENT '市值',
+  nav_ratio DECIMAL(10,6) DEFAULT NULL COMMENT '占基金净值比例，百分比',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_industry_allocation (report_id, industry_standard, industry_code, industry_name),
+  KEY idx_industry_name (industry_name),
+  CONSTRAINT fk_industry_allocation_report FOREIGN KEY (report_id) REFERENCES fund_disclosure_report (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金行业配置';
+
+CREATE TABLE IF NOT EXISTS fund_position_disclosure (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  report_id BIGINT UNSIGNED NOT NULL COMMENT '披露报告ID',
+  security_id BIGINT UNSIGNED DEFAULT NULL COMMENT '行情标的ID',
+  market VARCHAR(32) DEFAULT NULL COMMENT '市场',
+  security_code VARCHAR(32) DEFAULT NULL COMMENT '证券代码',
+  security_name VARCHAR(128) NOT NULL COMMENT '证券名称',
+  asset_type ENUM('STOCK','BOND','FUND','DERIVATIVE','REIT','OTHER') NOT NULL DEFAULT 'STOCK' COMMENT '资产类型',
+  rank_no INT DEFAULT NULL COMMENT '重仓排名',
+  holding_quantity DECIMAL(24,4) DEFAULT NULL COMMENT '持有数量',
+  market_value DECIMAL(24,4) DEFAULT NULL COMMENT '持仓市值',
+  nav_ratio DECIMAL(10,6) DEFAULT NULL COMMENT '占基金净值比例，百分比',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_position_report_rank_code (report_id, asset_type, rank_no, security_code),
+  KEY idx_position_security (security_id),
+  KEY idx_position_code (market, security_code),
+  KEY idx_position_ratio (nav_ratio),
+  CONSTRAINT fk_position_report FOREIGN KEY (report_id) REFERENCES fund_disclosure_report (id),
+  CONSTRAINT fk_position_security FOREIGN KEY (security_id) REFERENCES security_instrument (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金披露持仓';
+
+CREATE TABLE IF NOT EXISTS fund_sector (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  sector_code VARCHAR(64) NOT NULL COMMENT '板块编码',
+  sector_name VARCHAR(128) NOT NULL COMMENT '板块名称',
+  sector_type ENUM('INDUSTRY','THEME','STYLE','REGION','CUSTOM') NOT NULL COMMENT '板块类型',
+  parent_id BIGINT UNSIGNED DEFAULT NULL COMMENT '父板块ID',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_sector_code (sector_code),
+  KEY idx_sector_type (sector_type),
+  KEY idx_sector_parent (parent_id),
+  KEY idx_sector_source (source_id),
+  CONSTRAINT fk_sector_parent FOREIGN KEY (parent_id) REFERENCES fund_sector (id),
+  CONSTRAINT fk_sector_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金板块/主题';
+
+CREATE TABLE IF NOT EXISTS fund_sector_member (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  sector_id BIGINT UNSIGNED NOT NULL COMMENT '板块ID',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  weight DECIMAL(10,6) DEFAULT NULL COMMENT '归属权重',
+  reason VARCHAR(255) DEFAULT NULL COMMENT '归属原因',
+  effective_from DATE DEFAULT NULL COMMENT '生效开始',
+  effective_to DATE DEFAULT NULL COMMENT '生效结束',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_sector_member (sector_id, fund_code, effective_from),
+  KEY idx_sector_member_fund (fund_code),
+  KEY idx_sector_member_source (source_id),
+  CONSTRAINT fk_sector_member_sector FOREIGN KEY (sector_id) REFERENCES fund_sector (id),
+  CONSTRAINT fk_sector_member_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code),
+  CONSTRAINT fk_sector_member_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金板块归属';
+
+CREATE TABLE IF NOT EXISTS fund_estimate_model (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  model_code VARCHAR(64) NOT NULL COMMENT '模型编码',
+  model_name VARCHAR(128) NOT NULL COMMENT '模型名称',
+  model_version VARCHAR(32) NOT NULL COMMENT '模型版本',
+  fund_type VARCHAR(64) DEFAULT NULL COMMENT '适用基金类型',
+  parameters_json JSON DEFAULT NULL COMMENT '模型参数',
+  enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  remark VARCHAR(512) DEFAULT NULL COMMENT '备注',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_estimate_model (model_code, model_version)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金估算模型';
+
+CREATE TABLE IF NOT EXISTS fund_estimate_minute (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  trading_day DATE NOT NULL COMMENT '交易日',
+  quote_time DATETIME(3) NOT NULL COMMENT '估算时间',
+  estimate_nav DECIMAL(18,6) DEFAULT NULL COMMENT '估算净值',
+  estimate_return_pct DECIMAL(10,6) DEFAULT NULL COMMENT '估算涨跌幅，百分比',
+  estimate_change_amount DECIMAL(18,6) DEFAULT NULL COMMENT '估算净值变动',
+  official_last_nav DECIMAL(18,6) DEFAULT NULL COMMENT '最近官方单位净值',
+  official_nav_date DATE DEFAULT NULL COMMENT '最近官方净值日期',
+  model_id BIGINT UNSIGNED DEFAULT NULL COMMENT '估算模型ID',
+  confidence_score DECIMAL(5,2) DEFAULT NULL COMMENT '置信度0-100',
+  active_weight_pct DECIMAL(10,6) DEFAULT NULL COMMENT '可估算资产权重',
+  data_lag_seconds INT DEFAULT NULL COMMENT '行情延迟秒数',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '行情或估算数据源ID',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_estimate_fund_time (fund_code, quote_time),
+  KEY idx_estimate_day (trading_day, quote_time),
+  KEY idx_estimate_return (estimate_return_pct),
+  KEY idx_estimate_model (model_id),
+  KEY idx_estimate_source (source_id),
+  CONSTRAINT fk_estimate_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code),
+  CONSTRAINT fk_estimate_model FOREIGN KEY (model_id) REFERENCES fund_estimate_model (id),
+  CONSTRAINT fk_estimate_source FOREIGN KEY (source_id) REFERENCES data_source (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金分钟估算数据';
+
+CREATE TABLE IF NOT EXISTS fund_realtime_snapshot (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  trading_day DATE NOT NULL COMMENT '交易日',
+  quote_time DATETIME(3) NOT NULL COMMENT '最新估算时间',
+  estimate_nav DECIMAL(18,6) DEFAULT NULL COMMENT '估算净值',
+  estimate_return_pct DECIMAL(10,6) DEFAULT NULL COMMENT '估算涨跌幅，百分比',
+  confidence_score DECIMAL(5,2) DEFAULT NULL COMMENT '置信度0-100',
+  data_status ENUM('NORMAL','DELAYED','CLOSED','ERROR') NOT NULL DEFAULT 'NORMAL' COMMENT '数据状态',
+  data_lag_seconds INT DEFAULT NULL COMMENT '数据延迟秒数',
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_realtime_fund (fund_code),
+  KEY idx_realtime_day_return (trading_day, estimate_return_pct),
+  CONSTRAINT fk_realtime_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金最新估算快照，Redis为主，MySQL用于恢复';
+
+CREATE TABLE IF NOT EXISTS fund_ranking_daily (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  ranking_date DATE NOT NULL COMMENT '排名日期',
+  ranking_type ENUM('DAILY_RETURN','WEEKLY_RETURN','MONTHLY_RETURN','ESTIMATE_RETURN','POPULARITY','CUSTOM') NOT NULL COMMENT '排名类型',
+  scope_type ENUM('ALL','FUND_TYPE','SECTOR','COMPANY','CUSTOM') NOT NULL DEFAULT 'ALL' COMMENT '排名范围类型',
+  scope_code VARCHAR(64) NOT NULL DEFAULT 'ALL' COMMENT '排名范围编码',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  rank_no INT NOT NULL COMMENT '排名',
+  metric_value DECIMAL(18,6) DEFAULT NULL COMMENT '指标值',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_ranking_daily (ranking_date, ranking_type, scope_type, scope_code, fund_code),
+  KEY idx_ranking_list (ranking_date, ranking_type, scope_type, scope_code, rank_no),
+  KEY idx_ranking_fund (fund_code),
+  CONSTRAINT fk_ranking_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='基金每日排名';
+
+CREATE TABLE IF NOT EXISTS information_item (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  source_code VARCHAR(64) NOT NULL COMMENT '来源编码',
+  source_item_id VARCHAR(128) NOT NULL COMMENT '来源资讯ID',
+  title VARCHAR(255) NOT NULL COMMENT '标题',
+  summary TEXT DEFAULT NULL COMMENT '摘要',
+  content MEDIUMTEXT DEFAULT NULL COMMENT '正文',
+  source_name VARCHAR(64) DEFAULT NULL COMMENT '来源名称',
+  source_url VARCHAR(512) DEFAULT NULL COMMENT '来源链接',
+  importance ENUM('NORMAL','IMPORTANT') NOT NULL DEFAULT 'NORMAL' COMMENT '重要程度',
+  publish_time DATETIME(3) NOT NULL COMMENT '发布时间',
+  image_urls JSON DEFAULT NULL COMMENT '图片地址',
+  chart_urls JSON DEFAULT NULL COMMENT '图表地址',
+  symbols JSON DEFAULT NULL COMMENT '相关标的',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_information_source_item (source_code, source_item_id),
+  KEY idx_information_time (publish_time),
+  KEY idx_information_importance_time (importance, publish_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='信息流资讯';
+
+CREATE TABLE IF NOT EXISTS app_user (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  wechat_openid VARCHAR(128) NOT NULL COMMENT '微信openid',
+  wechat_unionid VARCHAR(128) DEFAULT NULL COMMENT '微信unionid',
+  nickname VARCHAR(128) DEFAULT NULL COMMENT '昵称',
+  avatar_url VARCHAR(512) DEFAULT NULL COMMENT '头像',
+  phone_ciphertext VARCHAR(512) DEFAULT NULL COMMENT '手机号密文或脱敏值',
+  status ENUM('ACTIVE','DISABLED','DELETED') NOT NULL DEFAULT 'ACTIVE' COMMENT '用户状态',
+  last_login_at DATETIME(3) DEFAULT NULL COMMENT '最近登录时间',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_user_openid (wechat_openid),
+  KEY idx_user_unionid (wechat_unionid),
+  KEY idx_user_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='小程序用户';
+
+CREATE TABLE IF NOT EXISTS user_watchlist (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_id BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  group_name VARCHAR(64) DEFAULT NULL COMMENT '分组名',
+  display_order INT NOT NULL DEFAULT 0 COMMENT '排序',
+  remark VARCHAR(255) DEFAULT NULL COMMENT '备注',
+  alert_enabled TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否启用提醒',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_watch_user_fund (user_id, fund_code),
+  KEY idx_watch_fund (fund_code),
+  KEY idx_watch_user_order (user_id, display_order),
+  CONSTRAINT fk_watch_user FOREIGN KEY (user_id) REFERENCES app_user (id),
+  CONSTRAINT fk_watch_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户自选基金';
+
+CREATE TABLE IF NOT EXISTS user_holding_account (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_id BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+  account_name VARCHAR(64) NOT NULL COMMENT '账户名称',
+  platform_name VARCHAR(64) DEFAULT NULL COMMENT '平台名称',
+  is_default TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否默认账户',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_holding_account (user_id, account_name),
+  KEY idx_holding_account_user (user_id),
+  CONSTRAINT fk_holding_account_user FOREIGN KEY (user_id) REFERENCES app_user (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户持有账户';
+
+CREATE TABLE IF NOT EXISTS user_fund_holding (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_id BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+  account_id BIGINT UNSIGNED NOT NULL COMMENT '账户ID，未选择时使用后端自动创建的默认账户',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  holding_share DECIMAL(24,4) NOT NULL DEFAULT 0 COMMENT '持有份额',
+  frozen_share DECIMAL(24,4) NOT NULL DEFAULT 0 COMMENT '冻结份额',
+  cost_amount DECIMAL(24,4) NOT NULL DEFAULT 0 COMMENT '持仓成本金额',
+  avg_cost_nav DECIMAL(18,6) DEFAULT NULL COMMENT '平均成本净值',
+  confirmed_amount DECIMAL(24,4) DEFAULT NULL COMMENT '最近官方确认市值',
+  last_confirmed_nav DECIMAL(18,6) DEFAULT NULL COMMENT '最近官方净值',
+  last_confirmed_nav_date DATE DEFAULT NULL COMMENT '最近官方净值日期',
+  profit_loss_amount DECIMAL(24,4) DEFAULT NULL COMMENT '官方确认盈亏',
+  profit_loss_pct DECIMAL(10,6) DEFAULT NULL COMMENT '官方确认盈亏率，百分比',
+  first_buy_date DATE DEFAULT NULL COMMENT '首次买入日期',
+  status ENUM('ACTIVE','CLEARED','DELETED') NOT NULL DEFAULT 'ACTIVE' COMMENT '持仓状态',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_holding_user_account_fund (user_id, account_id, fund_code),
+  KEY idx_holding_user (user_id, status),
+  KEY idx_holding_fund (fund_code),
+  KEY idx_holding_account (account_id),
+  CONSTRAINT fk_holding_user FOREIGN KEY (user_id) REFERENCES app_user (id),
+  CONSTRAINT fk_holding_account FOREIGN KEY (account_id) REFERENCES user_holding_account (id),
+  CONSTRAINT fk_holding_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户当前基金持仓';
+
+CREATE TABLE IF NOT EXISTS user_holding_txn (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  holding_id BIGINT UNSIGNED DEFAULT NULL COMMENT '持仓ID',
+  user_id BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  txn_type ENUM('BUY','SELL','DIVIDEND_CASH','DIVIDEND_REINVEST','FEE','ADJUST') NOT NULL COMMENT '交易类型',
+  txn_date DATE NOT NULL COMMENT '交易申请日',
+  confirm_date DATE DEFAULT NULL COMMENT '确认日',
+  amount DECIMAL(24,4) DEFAULT NULL COMMENT '金额',
+  share DECIMAL(24,4) DEFAULT NULL COMMENT '份额',
+  nav DECIMAL(18,6) DEFAULT NULL COMMENT '成交/确认净值',
+  fee DECIMAL(18,4) DEFAULT NULL COMMENT '费用',
+  source_type ENUM('USER_INPUT','IMPORT','SYSTEM_ADJUST') NOT NULL DEFAULT 'USER_INPUT' COMMENT '来源类型',
+  remark VARCHAR(255) DEFAULT NULL COMMENT '备注',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  KEY idx_txn_holding (holding_id),
+  KEY idx_txn_user_date (user_id, txn_date),
+  KEY idx_txn_fund_date (fund_code, txn_date),
+  CONSTRAINT fk_txn_holding FOREIGN KEY (holding_id) REFERENCES user_fund_holding (id),
+  CONSTRAINT fk_txn_user FOREIGN KEY (user_id) REFERENCES app_user (id),
+  CONSTRAINT fk_txn_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户基金交易流水';
+
+CREATE TABLE IF NOT EXISTS user_alert_rule (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_id BIGINT UNSIGNED NOT NULL COMMENT '用户ID',
+  fund_code CHAR(6) NOT NULL COMMENT '基金代码',
+  rule_type ENUM('ESTIMATE_RETURN','OFFICIAL_RETURN','NAV','PROFIT_LOSS','DATA_DELAY') NOT NULL COMMENT '提醒类型',
+  compare_op ENUM('GT','GTE','LT','LTE','EQ') NOT NULL COMMENT '比较符',
+  threshold_value DECIMAL(18,6) NOT NULL COMMENT '阈值',
+  enabled TINYINT(1) NOT NULL DEFAULT 1 COMMENT '是否启用',
+  last_triggered_at DATETIME(3) DEFAULT NULL COMMENT '最近触发时间',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  KEY idx_alert_user_fund (user_id, fund_code, enabled),
+  KEY idx_alert_fund (fund_code),
+  CONSTRAINT fk_alert_user FOREIGN KEY (user_id) REFERENCES app_user (id),
+  CONSTRAINT fk_alert_share FOREIGN KEY (fund_code) REFERENCES fund_share_class (fund_code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户基金提醒规则';
+
+CREATE TABLE IF NOT EXISTS ws_connection_log (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  user_id BIGINT UNSIGNED DEFAULT NULL COMMENT '用户ID',
+  session_id VARCHAR(128) NOT NULL COMMENT 'WebSocket会话ID',
+  client_id VARCHAR(128) DEFAULT NULL COMMENT '客户端ID',
+  ip_hash VARCHAR(128) DEFAULT NULL COMMENT 'IP哈希',
+  user_agent VARCHAR(512) DEFAULT NULL COMMENT '客户端UA',
+  connected_at DATETIME(3) NOT NULL COMMENT '连接时间',
+  disconnected_at DATETIME(3) DEFAULT NULL COMMENT '断开时间',
+  close_code VARCHAR(32) DEFAULT NULL COMMENT '关闭码',
+  close_reason VARCHAR(255) DEFAULT NULL COMMENT '关闭原因',
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_ws_session (session_id),
+  KEY idx_ws_user_time (user_id, connected_at),
+  CONSTRAINT fk_ws_user FOREIGN KEY (user_id) REFERENCES app_user (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='WebSocket连接日志';
+
+CREATE TABLE IF NOT EXISTS data_revision_log (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  table_name VARCHAR(128) NOT NULL COMMENT '表名',
+  biz_key VARCHAR(255) NOT NULL COMMENT '业务键',
+  source_id BIGINT UNSIGNED DEFAULT NULL COMMENT '数据源ID',
+  import_batch_id BIGINT UNSIGNED DEFAULT NULL COMMENT '导入批次ID',
+  old_hash VARCHAR(128) DEFAULT NULL COMMENT '旧数据哈希',
+  new_hash VARCHAR(128) DEFAULT NULL COMMENT '新数据哈希',
+  changed_fields JSON DEFAULT NULL COMMENT '变化字段',
+  revision_reason VARCHAR(255) DEFAULT NULL COMMENT '修订原因',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  KEY idx_revision_table_key (table_name, biz_key),
+  KEY idx_revision_source (source_id),
+  KEY idx_revision_batch (import_batch_id),
+  CONSTRAINT fk_revision_source FOREIGN KEY (source_id) REFERENCES data_source (id),
+  CONSTRAINT fk_revision_batch FOREIGN KEY (import_batch_id) REFERENCES data_import_batch (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='外部数据修订记录';
+
+CREATE TABLE IF NOT EXISTS manual_audit_log (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+  actor_user_id BIGINT UNSIGNED DEFAULT NULL COMMENT '操作用户ID',
+  action_type VARCHAR(64) NOT NULL COMMENT '操作类型',
+  target_table VARCHAR(128) NOT NULL COMMENT '目标表',
+  target_id VARCHAR(128) NOT NULL COMMENT '目标ID',
+  before_json JSON DEFAULT NULL COMMENT '变更前',
+  after_json JSON DEFAULT NULL COMMENT '变更后',
+  reason VARCHAR(255) DEFAULT NULL COMMENT '原因',
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  KEY idx_audit_target (target_table, target_id),
+  KEY idx_audit_actor (actor_user_id, created_at),
+  CONSTRAINT fk_audit_actor FOREIGN KEY (actor_user_id) REFERENCES app_user (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='人工操作审计日志';
+
+INSERT INTO data_source (
+  source_code,
+  source_name,
+  source_type,
+  trust_level,
+  license_status,
+  base_url,
+  priority,
+  enabled,
+  remark
+) VALUES
+  ('CSRC_DISCLOSURE', '中国证监会基金电子披露相关信息', 'OFFICIAL_DISCLOSURE', 1, 'PUBLIC', 'https://www.csrc.gov.cn/', 10, 1, '官方披露法规与电子披露相关来源'),
+  ('AMAC_PUBLIC_FUND', '中国证券投资基金业协会公募基金产品公示', 'OFFICIAL_DISCLOSURE', 1, 'PUBLIC', 'https://www.amac.org.cn/', 20, 1, '公募基金产品基础资料核验来源之一'),
+  ('FUND_COMPANY_SITE', '基金管理人官网', 'FUND_COMPANY', 1, 'PUBLIC', NULL, 30, 1, '基金合同、招募说明书、净值公告等官方来源'),
+  ('LICENSED_MARKET_VENDOR', '授权行情服务商', 'MARKET_VENDOR', 1, 'AUTHORIZED', NULL, 40, 1, '生产环境实时行情建议使用授权服务'),
+  ('MANUAL_ADMIN', '后台人工维护', 'MANUAL', 3, 'INTERNAL', NULL, 900, 1, '仅用于修正或补充，并必须记录审计')
+ON DUPLICATE KEY UPDATE
+  source_name = VALUES(source_name),
+  source_type = VALUES(source_type),
+  trust_level = VALUES(trust_level),
+  license_status = VALUES(license_status),
+  base_url = VALUES(base_url),
+  priority = VALUES(priority),
+  enabled = VALUES(enabled),
+  remark = VALUES(remark);
+
+INSERT INTO fund_estimate_model (
+  model_code,
+  model_name,
+  model_version,
+  fund_type,
+  parameters_json,
+  enabled,
+  remark
+) VALUES
+  ('INDEX_TRACKING_V1', '指数基金跟踪指数估算模型', '1.0.0', 'INDEX', JSON_OBJECT('minConfidence', 80), 1, '指数基金优先模型'),
+  ('POSITION_WEIGHT_V1', '披露持仓加权估算模型', '1.0.0', 'STOCK,MIXED', JSON_OBJECT('minDisclosureWeightPct', 30), 1, '股票型和混合型基金起步模型'),
+  ('BENCHMARK_PROXY_V1', '业绩基准代理估算模型', '1.0.0', 'OTHER', JSON_OBJECT('minConfidence', 40), 1, '持仓不足时降级使用')
+ON DUPLICATE KEY UPDATE
+  model_name = VALUES(model_name),
+  fund_type = VALUES(fund_type),
+  parameters_json = VALUES(parameters_json),
+  enabled = VALUES(enabled),
+  remark = VALUES(remark);
