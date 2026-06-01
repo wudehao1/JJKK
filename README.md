@@ -62,6 +62,7 @@ mvn -DskipTests spring-boot:run
 4. 合并后打 tag（可选）：`vX.Y.Z`
 
 详细流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+可回滚操作细则见 [docs/git_branch_workflow.md](docs/git_branch_workflow.md)。
 
 ## 文档
 
@@ -76,4 +77,3 @@ mvn -DskipTests spring-boot:run
   - `JJKK_WECHAT_APP_SECRET`
   - `JJKK_DB_PASSWORD`
   - `JJKK_REDIS_PASSWORD`
-
