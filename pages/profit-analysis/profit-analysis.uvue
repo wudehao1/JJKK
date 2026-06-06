@@ -1,0 +1,665 @@
+<template>
+  <view class="profit-page" :class="themeMode === 'dark' ? 'dark-page' : ''">
+    <view class="account-area">
+      <text class="account-caption">查看账户</text>
+      <scroll-view scroll-x class="account-strip" show-scrollbar="false">
+        <view class="account-strip-inner">
+          <view class="account-pill" :class="selectedAccountId === 0 ? 'account-pill-active' : ''" @click="switchAccount(0)">
+            <text class="account-pill-text" :class="selectedAccountId === 0 ? 'account-pill-text-active' : ''">全部</text>
+          </view>
+          <view v-for="item in accounts" :key="item.accountId" class="account-pill" :class="selectedAccountId === item.accountId ? 'account-pill-active' : ''" @click="switchAccount(item.accountId)">
+            <text class="account-pill-text" :class="selectedAccountId === item.accountId ? 'account-pill-text-active' : ''">{{ item.accountName }}</text>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+
+    <view class="summary-card">
+      <view class="summary-head">
+        <view>
+          <text class="summary-title">今日盈亏</text>
+          <text class="summary-eyebrow">{{ selectedAccountName }}</text>
+        </view>
+        <view class="status-pill">
+          <view class="status-dot"></view>
+          <text class="status-text">{{ statusText }}</text>
+        </view>
+      </view>
+      <view class="summary-value-line">
+        <text class="summary-amount" :class="valueClassName(summary.profitAmount)">{{ formatSignedMoney(summary.profitAmount) }}</text>
+        <text class="summary-rate" :class="valueClassName(summary.returnPct)">{{ formatPercent(summary.returnPct) }}</text>
+      </view>
+      <view class="summary-metrics">
+        <view class="summary-metric">
+          <text class="summary-metric-label">当前持有市值</text>
+          <text class="summary-metric-value">{{ formatMoney(summary.currentMarketValue) }}</text>
+        </view>
+        <view class="summary-metric">
+          <text class="summary-metric-label">昨日持有市值</text>
+          <text class="summary-metric-value">{{ formatMoney(summary.previousMarketValue) }}</text>
+        </view>
+        <view class="summary-metric last-metric">
+          <text class="summary-metric-label">更新</text>
+          <text class="summary-metric-value">{{ shortTime(summary.updatedAt) }}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel chart-panel">
+      <view class="panel-head">
+        <view>
+          <text class="panel-title">{{ currentRange === 'today' ? '当日盈亏分时' : '收益走势' }}</text>
+          <text class="panel-sub">{{ chartSubtitle }}</text>
+        </view>
+        <view class="metric-switch">
+          <view class="metric-option" :class="metricMode === 'amount' ? 'metric-active' : ''" @click="setMetricMode('amount')">
+            <text class="metric-option-text" :class="metricMode === 'amount' ? 'metric-option-text-active' : ''">金额</text>
+          </view>
+          <view class="metric-option" :class="metricMode === 'rate' ? 'metric-active' : ''" @click="setMetricMode('rate')">
+            <text class="metric-option-text" :class="metricMode === 'rate' ? 'metric-option-text-active' : ''">收益率</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="range-tabs">
+        <view v-for="item in ranges" :key="item.key" class="range-tab" :class="currentRange === item.key ? 'range-active' : ''" @click="switchRange(item.key)">
+          <text class="range-text" :class="currentRange === item.key ? 'range-text-active' : ''">{{ item.label }}</text>
+        </view>
+      </view>
+
+      <view id="profitChartBox" class="chart-plot" :style="'height:' + chartHeight + 'px;'">
+        <view v-if="displayChartPoints.length > 0" class="chart-gradient" :style="chartModel.fillStyle"></view>
+        <view class="grid-line grid-top"></view>
+        <view class="grid-line grid-mid"></view>
+        <view class="grid-line grid-bottom"></view>
+        <view class="zero-line" :style="chartModel.zeroStyle"></view>
+        <view v-if="currentRange === 'today'" class="middle-line" :style="chartModel.middleStyle"></view>
+        <view v-for="segment in chartModel.segments" :key="segment.key" class="line-segment" :style="segment.style"></view>
+        <text class="axis-y axis-top">{{ chartTopLabel }}</text>
+        <text class="axis-y axis-bottom">{{ chartBottomLabel }}</text>
+        <view v-if="displayChartPoints.length === 0" class="empty-mask">
+          <text class="empty-text">暂无收益走势</text>
+        </view>
+      </view>
+      <view class="axis-x">
+        <text class="axis-x-text">{{ axisStartLabel }}</text>
+        <text class="axis-x-text">{{ axisMiddleLabel }}</text>
+        <text class="axis-x-text">{{ axisEndLabel }}</text>
+      </view>
+    </view>
+
+    <view class="panel calendar-panel">
+      <view class="panel-head">
+        <view>
+          <text class="panel-title">盈亏日历</text>
+          <text class="panel-sub">点击日期，下面明细同步变化</text>
+        </view>
+        <view class="calendar-mode-switch">
+          <view v-for="item in calendarModes" :key="item.key" class="calendar-mode-option" :class="calendarMode === item.key ? 'calendar-mode-active' : ''" @click="switchCalendarMode(item.key)">
+            <text class="calendar-mode-text" :class="calendarMode === item.key ? 'calendar-mode-text-active' : ''">{{ item.label }}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="calendar-nav">
+        <text v-if="calendarMode !== 'year'" class="calendar-nav-button" @click="shiftCalendar(-1)">‹</text>
+        <text class="calendar-title">{{ calendarTitle }}</text>
+        <text v-if="calendarMode !== 'year'" class="calendar-nav-button" @click="shiftCalendar(1)">›</text>
+      </view>
+
+      <view class="calendar-summary">
+        <view>
+          <text class="calendar-summary-label">当前选中</text>
+          <text class="calendar-summary-key">{{ selectedKey || '--' }}</text>
+        </view>
+        <view class="calendar-summary-values">
+          <text class="calendar-summary-amount" :class="selectedCalendarItem ? valueClassName(selectedCalendarItem.profitAmount) : 'flat'">{{ selectedCalendarItem ? formatSignedMoney(selectedCalendarItem.profitAmount) : '--' }}</text>
+          <text class="calendar-summary-rate" :class="selectedCalendarItem ? valueClassName(selectedCalendarItem.returnPct) : 'flat'">{{ selectedCalendarItem ? formatPercent(selectedCalendarItem.returnPct) : '--' }}</text>
+        </view>
+      </view>
+
+      <view v-if="calendarMode === 'day'" class="weekday-row">
+        <text v-for="name in weekNames" :key="name" class="weekday-text">{{ name }}</text>
+      </view>
+      <view class="calendar-grid">
+        <view
+          v-for="item in calendarCells"
+          :key="item.cellKey"
+          class="calendar-cell"
+          :class="calendarCellClass(item)"
+          :style="calendarCellStyle(item)"
+          @click="selectCalendarItem(item)"
+        >
+          <text v-if="!item.blank" class="calendar-label">{{ item.label }}</text>
+          <text v-if="!item.blank" class="calendar-value" :class="item.hasData ? valueClassName(item.profitAmount) : 'muted-value'">{{ calendarValue(item) }}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="panel detail-panel">
+      <view class="panel-head">
+        <view>
+          <text class="panel-title">盈亏明细</text>
+          <text class="panel-sub">{{ selectedKey }} · {{ selectedAccountName }}</text>
+        </view>
+        <text class="detail-count">{{ details.length }} 只</text>
+      </view>
+
+      <view v-if="details.length > 0" class="pnl-map">
+        <view v-for="item in details" :key="item.fundCode" class="pnl-map-block" :style="mapBlockStyle(item)">
+          <text v-if="showMapLabel(item, 12)" class="pnl-map-name">{{ item.fundCode }}</text>
+        </view>
+      </view>
+      <view v-if="details.length > 0" class="map-legend">
+        <text class="map-legend-text">收益贡献占比</text>
+        <text class="map-legend-text">红色盈利 · 绿色亏损</text>
+      </view>
+
+      <view v-if="details.length === 0" class="detail-empty">
+        <text class="empty-title">该时间段暂无盈亏</text>
+        <text class="empty-text">选择有净值更新的交易日查看明细</text>
+      </view>
+
+      <view v-for="item in details" :key="'detail-' + item.fundCode" class="detail-row">
+        <view class="detail-rank" :style="'background-color:' + detailColor(item) + ';'"></view>
+        <view class="detail-main">
+          <text class="detail-name">{{ item.fundName }}</text>
+          <text class="detail-sub">{{ item.fundCode }} · {{ item.accountName }} · 占比 {{ formatWeight(item.weightPct) }}</text>
+        </view>
+        <view class="detail-side">
+          <text class="detail-amount" :class="valueClassName(item.profitAmount)">{{ formatSignedMoney(item.profitAmount) }}</text>
+          <text class="detail-rate" :class="valueClassName(item.returnPct)">{{ formatPercent(item.returnPct) }}</text>
+        </view>
+      </view>
+    </view>
+
+    <view v-if="loading" class="loading-float">
+      <text class="loading-text">正在计算盈亏...</text>
+    </view>
+  </view>
+</template>
+
+<script>
+import { applyTheme, getThemeMode } from '../../common/theme.js'
+import { ensureUser, getProfitAnalysis, money, percent, valueClass } from '../../common/api.js'
+import { buildLineChartModel } from '../../common/line-chart.js'
+
+export default {
+  data() {
+    return {
+      themeMode: getThemeMode(),
+      userId: 0,
+      loading: false,
+      requestSeq: 0,
+      timer: null,
+      selectedAccountId: 0,
+      accounts: [],
+      summary: {
+        date: '',
+        profitAmount: 0,
+        returnPct: 0,
+        previousMarketValue: 0,
+        currentMarketValue: 0,
+        updatedAt: '',
+        dataStatus: 'NO_DATA'
+      },
+      currentRange: 'today',
+      trendRange: 'week',
+      ranges: [
+        { key: 'today', label: '当日' },
+        { key: 'week', label: '本周' },
+        { key: 'month', label: '本月' },
+        { key: 'year', label: '本年' },
+        { key: 'all', label: '全部' }
+      ],
+      metricMode: 'amount',
+      intraday: [],
+      trend: [],
+      chartWidth: 320,
+      chartHeight: 210,
+      calendarMode: 'day',
+      calendarModes: [
+        { key: 'day', label: '每日' },
+        { key: 'month', label: '每月' },
+        { key: 'year', label: '每年' }
+      ],
+      calendarAnchor: '',
+      calendarItems: [],
+      selectedKey: '',
+      details: [],
+      weekNames: ['日', '一', '二', '三', '四', '五', '六']
+    }
+  },
+  computed: {
+    selectedAccountName() {
+      if (this.selectedAccountId === 0) return '全部账户'
+      const account = this.accounts.find((item) => Number(item.accountId) === Number(this.selectedAccountId))
+      return account ? account.accountName : '当前账户'
+    },
+    statusText() {
+      const status = String(this.summary.dataStatus || '').toUpperCase()
+      if (status === 'REALTIME') return '实时估算'
+      if (status === 'OFFICIAL') return '官方净值'
+      if (status === 'PARTIAL') return '部分更新'
+      return '暂无数据'
+    },
+    chartSubtitle() {
+      if (this.currentRange === 'today') return '按今日开盘前持有份额实时计算'
+      return this.metricMode === 'amount' ? '区间累计盈亏金额' : '区间复合收益率'
+    },
+    sourceChartPoints() {
+      return this.currentRange === 'today' ? this.intraday : this.trend
+    },
+    displayChartPoints() {
+      return (this.sourceChartPoints || []).map((item) => {
+        const rawValue = this.metricMode === 'amount' ? Number(item.profitAmount || 0) : Number(item.returnPct || 0)
+        return {
+          value: rawValue,
+          changePct: rawValue,
+          rawValue,
+          time: item.quoteTime || item.date || item.key || ''
+        }
+      })
+    },
+    chartModel() {
+      return buildLineChartModel(this.displayChartPoints, {
+        width: this.chartWidth,
+        height: this.chartHeight,
+        symmetric: this.currentRange === 'today',
+        fixedTimeAxis: this.currentRange === 'today',
+        today: this.currentRange === 'today'
+      })
+    },
+    chartScale() {
+      const values = this.displayChartPoints.map((item) => Number(item.value)).filter((item) => Number.isFinite(item))
+      if (!values.length) return { min: 0, max: 0 }
+      let min = Math.min.apply(null, values)
+      let max = Math.max.apply(null, values)
+      if (this.currentRange === 'today') {
+        const bound = Math.max(Math.abs(min), Math.abs(max), this.metricMode === 'amount' ? 1 : 0.01)
+        min = -bound
+        max = bound
+      }
+      return { min, max }
+    },
+    chartTopLabel() {
+      return this.chartAxisValue(this.chartScale.max)
+    },
+    chartBottomLabel() {
+      return this.chartAxisValue(this.chartScale.min)
+    },
+    axisStartLabel() {
+      if (this.currentRange === 'today') return '09:30'
+      const item = this.sourceChartPoints.length ? this.sourceChartPoints[0] : null
+      return item ? this.shortDate(item.date || item.key) : '--'
+    },
+    axisMiddleLabel() {
+      return this.currentRange === 'today' ? '11:30 / 13:00' : '累计收益'
+    },
+    axisEndLabel() {
+      if (this.currentRange === 'today') return '15:00'
+      const item = this.sourceChartPoints.length ? this.sourceChartPoints[this.sourceChartPoints.length - 1] : null
+      return item ? this.shortDate(item.date || item.key) : '--'
+    },
+    calendarTitle() {
+      const date = this.parseDate(this.calendarAnchor)
+      if (this.calendarMode === 'year') return '全部年份'
+      if (this.calendarMode === 'month') return date.getFullYear() + '年'
+      return date.getFullYear() + '年' + (date.getMonth() + 1) + '月'
+    },
+    selectedCalendarItem() {
+      return (this.calendarItems || []).find((item) => item && item.key === this.selectedKey) || null
+    },
+    maxCalendarProfitAbsolute() {
+      const values = (this.calendarItems || [])
+        .filter((item) => item && item.hasData)
+        .map((item) => Math.abs(Number(item.profitAmount || 0)))
+      return values.length ? Math.max.apply(null, values) : 0
+    },
+    calendarCells() {
+      const items = (this.calendarItems || []).map((item, index) => Object.assign({ blank: false, cellKey: 'item-' + index + '-' + item.key }, item))
+      if (this.calendarMode !== 'day' || !items.length) return items
+      const first = this.parseDate(items[0].startDate || items[0].key)
+      const blanks = []
+      for (let index = 0; index < first.getDay(); index += 1) {
+        blanks.push({ blank: true, cellKey: 'blank-' + index, key: '', label: '', hasData: false, profitAmount: 0, returnPct: 0 })
+      }
+      return blanks.concat(items)
+    }
+  },
+  onReady() {
+    this.measureChart()
+  },
+  onLoad(options) {
+    const accountId = Number(options && options.accountId ? options.accountId : 0)
+    this.selectedAccountId = Number.isInteger(accountId) && accountId > 0 ? accountId : 0
+  },
+  onShow() {
+    this.themeMode = getThemeMode()
+    applyTheme()
+    ensureUser().then((userId) => {
+      this.userId = userId
+      this.load(false)
+      this.startTimer()
+    })
+  },
+  onHide() {
+    this.stopTimer()
+  },
+  onUnload() {
+    this.stopTimer()
+  },
+  onPullDownRefresh() {
+    this.load(true)
+  },
+  methods: {
+    load(showTip) {
+      if (!this.userId) {
+        uni.stopPullDownRefresh()
+        return
+      }
+      const requestId = this.requestSeq + 1
+      this.requestSeq = requestId
+      this.loading = true
+      getProfitAnalysis(this.userId, {
+        accountId: this.selectedAccountId > 0 ? this.selectedAccountId : null,
+        range: this.trendRange,
+        calendarMode: this.calendarMode,
+        anchor: this.calendarAnchor || null,
+        detailKey: this.selectedKey || null
+      }).then((data) => {
+        if (requestId !== this.requestSeq) return
+        this.accounts = (data && data.accounts) || []
+        this.summary = (data && data.summary) || this.summary
+        this.intraday = (data && data.intraday) || []
+        this.trend = (data && data.trend) || []
+        this.trendRange = (data && data.trendRange) || this.trendRange
+        this.calendarMode = (data && data.calendarMode) || this.calendarMode
+        this.calendarAnchor = (data && data.calendarAnchor) || this.calendarAnchor || this.todayText()
+        this.calendarItems = (data && data.calendar) || []
+        this.selectedKey = (data && data.selectedKey) || this.selectedKey
+        this.details = (data && data.details) || []
+        this.measureChart()
+        if (showTip) uni.showToast({ title: '盈亏数据已刷新', icon: 'none' })
+      }).finally(() => {
+        if (requestId === this.requestSeq) {
+          this.loading = false
+          uni.stopPullDownRefresh()
+        }
+      })
+    },
+    switchAccount(accountId) {
+      const next = Number(accountId || 0)
+      if (next === this.selectedAccountId) return
+      this.selectedAccountId = next
+      this.load(false)
+    },
+    switchRange(range) {
+      if (range === this.currentRange) return
+      this.currentRange = range
+      if (range !== 'today' && range !== this.trendRange) {
+        this.trendRange = range
+        this.load(false)
+      } else {
+        this.measureChart()
+      }
+    },
+    setMetricMode(mode) {
+      this.metricMode = mode === 'rate' ? 'rate' : 'amount'
+      this.measureChart()
+    },
+    switchCalendarMode(mode) {
+      if (mode === this.calendarMode) return
+      this.calendarMode = mode
+      const today = this.todayText()
+      this.calendarAnchor = today
+      this.selectedKey = mode === 'month' ? today.slice(0, 7) : (mode === 'year' ? today.slice(0, 4) : today)
+      this.load(false)
+    },
+    shiftCalendar(delta) {
+      const date = this.parseDate(this.calendarAnchor)
+      if (this.calendarMode === 'day') {
+        date.setDate(1)
+        date.setMonth(date.getMonth() + delta)
+      } else {
+        date.setMonth(0, 1)
+        date.setFullYear(date.getFullYear() + delta)
+      }
+      this.calendarAnchor = this.formatDate(date)
+      this.selectedKey = this.calendarMode === 'month' ? this.calendarAnchor.slice(0, 7) : this.calendarAnchor
+      this.load(false)
+    },
+    selectCalendarItem(item) {
+      if (!item || item.blank || !item.key) return
+      if (this.selectedKey === item.key) return
+      this.selectedKey = item.key
+      this.load(false)
+    },
+    calendarCellClass(item) {
+      let classes = this.calendarMode === 'day' ? 'day-cell' : 'period-cell'
+      if (item && item.blank) classes += ' calendar-blank'
+      if (item && this.selectedKey === item.key) classes += ' calendar-selected'
+      return classes
+    },
+    calendarCellStyle(item) {
+      if (!item || item.blank || !item.hasData || this.selectedKey === item.key) return ''
+      const amount = Number(item.profitAmount || 0)
+      const max = Number(this.maxCalendarProfitAbsolute || 0)
+      const alpha = max > 0 ? 0.05 + Math.min(1, Math.abs(amount) / max) * 0.08 : 0.05
+      if (amount > 0) return 'background-color:rgba(217,66,82,' + alpha.toFixed(3) + ');'
+      if (amount < 0) return 'background-color:rgba(24,168,117,' + alpha.toFixed(3) + ');'
+      return ''
+    },
+    startTimer() {
+      this.stopTimer()
+      this.timer = setInterval(() => this.load(false), 60000)
+    },
+    stopTimer() {
+      if (this.timer) clearInterval(this.timer)
+      this.timer = null
+    },
+    measureChart() {
+      this.$nextTick(() => {
+        const info = (() => {
+          if (uni.getWindowInfo) return uni.getWindowInfo()
+          if (typeof wx !== 'undefined' && wx.getWindowInfo) return wx.getWindowInfo()
+          return uni.getSystemInfoSync ? uni.getSystemInfoSync() : {}
+        })()
+        this.chartWidth = Math.max(280, (info.windowWidth || 375) - 48)
+        if (!uni.createSelectorQuery) return
+        const query = uni.createSelectorQuery().in(this)
+        query.select('#profitChartBox').boundingClientRect((rect) => {
+          if (rect && rect.width) this.chartWidth = Math.max(280, rect.width)
+        }).exec()
+      })
+    },
+    mapBlockStyle(item) {
+      const width = Math.max(0, Math.min(100, Number(item.weightPct || 0)))
+      return 'width:' + width + '%;background-color:' + this.detailColor(item) + ';'
+    },
+    showMapLabel(item, minimum) {
+      return Number(item && item.weightPct ? item.weightPct : 0) >= Number(minimum || 0)
+    },
+    detailColor(item) {
+      const value = Number(item && item.profitAmount ? item.profitAmount : 0)
+      if (value > 0) return '#D94252'
+      if (value < 0) return '#18A875'
+      return '#98A2B3'
+    },
+    calendarValue(item) {
+      if (!item || !item.hasData) return '--'
+      return this.metricMode === 'amount' ? this.compactSignedMoney(item.profitAmount) : this.compactPercent(item.returnPct)
+    },
+    chartAxisValue(value) {
+      if (!Number.isFinite(Number(value))) return '--'
+      if (this.metricMode === 'rate') return Number(value).toFixed(2) + '%'
+      return this.compactSignedMoney(value)
+    },
+    compactSignedMoney(value) {
+      const number = Number(value || 0)
+      const sign = number > 0 ? '+' : ''
+      const absolute = Math.abs(number)
+      if (absolute >= 10000) return sign + (number / 10000).toFixed(1) + '万'
+      return sign + number.toFixed(0)
+    },
+    compactPercent(value) {
+      const number = Number(value || 0)
+      return (number > 0 ? '+' : '') + number.toFixed(1) + '%'
+    },
+    formatMoney(value) {
+      return money(value)
+    },
+    formatSignedMoney(value) {
+      const number = Number(value || 0)
+      return (number > 0 ? '+' : '') + money(number)
+    },
+    formatPercent(value) {
+      return percent(value)
+    },
+    formatWeight(value) {
+      return Number(value || 0).toFixed(1) + '%'
+    },
+    valueClassName(value) {
+      return valueClass(value)
+    },
+    shortDate(value) {
+      if (!value) return '--'
+      return String(value).slice(5, 10)
+    },
+    shortTime(value) {
+      if (!value) return '--'
+      return String(value).replace('T', ' ').slice(11, 16)
+    },
+    todayText() {
+      return this.formatDate(new Date())
+    },
+    parseDate(value) {
+      const text = value || this.todayText()
+      const parts = String(text).slice(0, 10).split('-').map((item) => Number(item))
+      return new Date(parts[0], Math.max(0, parts[1] - 1), parts[2] || 1)
+    },
+    formatDate(date) {
+      const pad = (value) => String(value).padStart(2, '0')
+      return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+    }
+  }
+}
+</script>
+
+<style>
+.profit-page { min-height: 100%; padding: 12px; padding-bottom: 34px; background-color: #F5F7FA; }
+.account-area { margin-bottom: 10px; }
+.account-caption { display: block; margin-bottom: 8px; color: #98A2B3; font-size: 10px; font-weight: 700; }
+.account-strip { white-space: nowrap; }
+.account-strip-inner { flex-direction: row; align-items: center; }
+.account-pill { height: 30px; margin-right: 8px; padding: 0 13px; border-radius: 15px; border-width: 1px; border-style: solid; border-color: #E4E7EC; background-color: #FFFFFF; align-items: center; justify-content: center; }
+.account-pill-active { border-color: #1F2937; background-color: #1F2937; }
+.account-pill-text { color: #667085; font-size: 11px; font-weight: 700; }
+.account-pill-text-active { color: #FFFFFF; }
+.summary-card { padding: 16px; border-width: 1px; border-style: solid; border-color: #E7EAF0; border-radius: 12px; background-color: #FFFFFF; }
+.summary-head { flex-direction: row; align-items: flex-start; justify-content: space-between; }
+.summary-title { color: #667085; font-size: 11px; font-weight: 700; }
+.summary-eyebrow { display: block; margin-top: 5px; color: #1F2937; font-size: 13px; font-weight: 800; }
+.status-pill { height: 24px; padding: 0 9px; border-radius: 12px; background-color: #F2F4F7; flex-direction: row; align-items: center; justify-content: center; }
+.status-dot { width: 5px; height: 5px; margin-right: 5px; border-radius: 3px; background-color: #18A875; }
+.status-text { color: #667085; font-size: 9px; font-weight: 700; }
+.summary-value-line { margin-top: 18px; flex-direction: row; align-items: flex-end; }
+.summary-amount { color: #1F2937; font-size: 32px; font-weight: 900; letter-spacing: 1px; }
+.summary-rate { margin-left: 9px; margin-bottom: 4px; padding: 3px 7px; border-radius: 5px; background-color: #F5F7FA; font-size: 11px; font-weight: 800; }
+.summary-metrics { margin-top: 18px; padding: 11px 10px; border-radius: 8px; background-color: #F8FAFC; flex-direction: row; }
+.summary-metric { flex: 1; padding-right: 7px; }
+.last-metric { padding-right: 0; }
+.summary-metric-label { color: #98A2B3; font-size: 9px; }
+.summary-metric-value { display: block; margin-top: 5px; color: #344054; font-size: 11px; font-weight: 800; }
+.panel { margin-top: 12px; border-width: 1px; border-style: solid; border-color: #E7EAF0; border-radius: 12px; background-color: #FFFFFF; overflow: hidden; }
+.panel-head { padding: 14px 14px 12px; flex-direction: row; align-items: center; justify-content: space-between; }
+.panel-title { color: #1F2937; font-size: 14px; font-weight: 900; }
+.panel-sub { display: block; margin-top: 4px; color: #98A2B3; font-size: 9px; }
+.metric-switch, .calendar-mode-switch { padding: 2px; border-radius: 6px; background-color: #F2F4F7; flex-direction: row; }
+.metric-option, .calendar-mode-option { height: 24px; padding: 0 8px; border-radius: 5px; align-items: center; justify-content: center; }
+.metric-active, .calendar-mode-active { background-color: #FFFFFF; }
+.metric-option-text, .calendar-mode-text { color: #98A2B3; font-size: 9px; font-weight: 700; }
+.metric-option-text-active, .calendar-mode-text-active { color: #1677F2; }
+.range-tabs { margin: 0 12px 13px; padding: 3px; border-radius: 7px; background-color: #F5F7FA; flex-direction: row; }
+.range-tab { flex: 1; height: 28px; border-radius: 5px; align-items: center; justify-content: center; }
+.range-active { background-color: #FFFFFF; }
+.range-text { color: #7B8493; font-size: 10px; font-weight: 700; }
+.range-text-active { color: #1677F2; font-weight: 900; }
+.chart-plot { position: relative; margin: 0 12px; overflow: hidden; border-radius: 7px; background-color: #FFFFFF; }
+.chart-gradient { position: absolute; border-radius: 4px; }
+.grid-line { position: absolute; left: 0; right: 0; height: 1px; background-color: #F0F2F5; }
+.grid-top { top: 20px; }
+.grid-mid { top: 50%; }
+.grid-bottom { bottom: 24px; }
+.zero-line { position: absolute; left: 0; right: 0; height: 1px; border-top: 1px dotted #C8CDD5; }
+.middle-line { position: absolute; top: 20px; bottom: 24px; width: 1px; border-left: 1px dotted #D2D6DE; }
+.line-segment { position: absolute; height: 2px; border-radius: 2px; transform-origin: 0 50%; }
+.line-dot { position: absolute; width: 2px; height: 2px; border-radius: 1px; }
+.axis-y { position: absolute; left: 2px; color: #98A2B3; font-size: 9px; background-color: rgba(255,255,255,0.80); }
+.axis-top { top: 2px; }
+.axis-bottom { bottom: 24px; }
+.axis-x { height: 28px; margin: 0 13px 8px; flex-direction: row; align-items: center; justify-content: space-between; }
+.axis-x-text { color: #98A2B3; font-size: 9px; }
+.empty-mask { position: absolute; left: 0; right: 0; top: 0; bottom: 0; align-items: center; justify-content: center; background-color: rgba(255,255,255,0.86); }
+.empty-text { color: #98A2B3; font-size: 10px; }
+.calendar-nav { height: 36px; margin: 0 12px; border-top: 1px solid #F0F2F5; flex-direction: row; align-items: center; justify-content: space-between; }
+.calendar-nav-button { width: 30px; color: #667085; font-size: 22px; font-weight: 700; text-align: center; }
+.calendar-title { flex: 1; color: #344054; font-size: 11px; font-weight: 800; text-align: center; }
+.calendar-summary { margin: 0 12px 9px; padding: 10px; border-radius: 7px; background-color: #F8FAFC; flex-direction: row; align-items: center; justify-content: space-between; }
+.calendar-summary-label { color: #98A2B3; font-size: 9px; }
+.calendar-summary-key { display: block; margin-top: 3px; color: #344054; font-size: 11px; font-weight: 800; }
+.calendar-summary-values { align-items: flex-end; }
+.calendar-summary-amount { font-size: 13px; font-weight: 900; }
+.calendar-summary-rate { display: block; margin-top: 3px; font-size: 9px; font-weight: 700; }
+.weekday-row { padding: 0 9px; height: 23px; flex-direction: row; align-items: center; }
+.weekday-text { width: 14.285%; color: #98A2B3; font-size: 9px; text-align: center; }
+.calendar-grid { padding: 0 8px 12px; flex-direction: row; flex-wrap: wrap; }
+.calendar-cell { margin-bottom: 4px; border-width: 1px; border-style: solid; border-color: transparent; border-radius: 6px; align-items: center; justify-content: center; }
+.day-cell { width: 14.285%; height: 46px; }
+.period-cell { width: 25%; height: 52px; }
+.calendar-selected { border-color: #84B8F4; background-color: #F1F7FF; }
+.calendar-blank { opacity: 0; }
+.calendar-label { color: #475467; font-size: 9px; font-weight: 800; }
+.calendar-value { display: block; margin-top: 4px; font-size: 8px; font-weight: 800; }
+.muted-value { color: #C2C8D0; }
+.detail-count { min-width: 34px; height: 21px; line-height: 21px; padding: 0 7px; border-radius: 11px; background-color: #F2F4F7; color: #667085; font-size: 9px; font-weight: 800; text-align: center; }
+.pnl-map { height: 42px; margin: 2px 12px 0; border-radius: 7px; overflow: hidden; flex-direction: row; background-color: #EEF1F5; }
+.pnl-map-block { height: 42px; padding: 0 3px; border-right: 1px solid rgba(255,255,255,0.72); align-items: center; justify-content: center; overflow: hidden; }
+.pnl-map-name { color: #FFFFFF; font-size: 8px; font-weight: 900; }
+.map-legend { margin: 7px 12px 10px; flex-direction: row; align-items: center; justify-content: space-between; }
+.map-legend-text { color: #98A2B3; font-size: 8px; }
+.detail-row { min-height: 64px; padding: 10px 12px; border-top: 1px solid #F0F2F5; flex-direction: row; align-items: center; }
+.detail-rank { width: 3px; height: 34px; border-radius: 2px; }
+.detail-main { flex: 1; min-width: 0; padding-left: 9px; padding-right: 8px; }
+.detail-name { color: #1F2937; font-size: 11px; font-weight: 800; }
+.detail-sub { display: block; margin-top: 5px; color: #98A2B3; font-size: 8px; }
+.detail-side { align-items: flex-end; }
+.detail-amount { font-size: 12px; font-weight: 900; }
+.detail-rate { display: block; margin-top: 4px; font-size: 9px; font-weight: 700; }
+.detail-empty { padding: 34px 0; align-items: center; justify-content: center; }
+.empty-title { color: #475467; font-size: 11px; font-weight: 800; }
+.detail-empty .empty-text { display: block; margin-top: 6px; }
+.loading-float { position: fixed; right: 14px; bottom: 24px; height: 30px; padding: 0 11px; border-radius: 15px; background-color: rgba(31,41,55,0.86); align-items: center; justify-content: center; }
+.loading-text { color: #FFFFFF; font-size: 9px; font-weight: 700; }
+.up { color: #D94252; }
+.down { color: #18A875; }
+.flat { color: #667085; }
+.dark-page { background-color: #0B1220; }
+.dark-page .account-caption, .dark-page .panel-sub, .dark-page .axis-x-text, .dark-page .weekday-text, .dark-page .detail-sub, .dark-page .empty-text, .dark-page .map-legend-text, .dark-page .calendar-summary-label { color: #8F9BAD; }
+.dark-page .account-pill { border-color: #344154; background-color: #1F2937; }
+.dark-page .account-pill-active { border-color: #E5E7EB; background-color: #E5E7EB; }
+.dark-page .account-pill-text { color: #A7B0BE; }
+.dark-page .account-pill-text-active { color: #111827; }
+.dark-page .summary-card, .dark-page .panel { border-color: #344154; background-color: #1F2937; }
+.dark-page .summary-title, .dark-page .status-text { color: #A7B0BE; }
+.dark-page .summary-eyebrow, .dark-page .summary-metric-value, .dark-page .panel-title, .dark-page .calendar-title, .dark-page .calendar-summary-key, .dark-page .calendar-label, .dark-page .detail-name, .dark-page .empty-title { color: #F9FAFB; }
+.dark-page .status-pill, .dark-page .summary-rate, .dark-page .summary-metrics, .dark-page .metric-switch, .dark-page .calendar-mode-switch, .dark-page .range-tabs, .dark-page .calendar-summary, .dark-page .detail-count { background-color: #111827; }
+.dark-page .metric-active, .dark-page .calendar-mode-active, .dark-page .range-active { background-color: #2B384B; }
+.dark-page .chart-plot { background-color: #1F2937; }
+.dark-page .grid-line, .dark-page .calendar-nav, .dark-page .detail-row { border-color: #374151; background-color: transparent; }
+.dark-page .zero-line, .dark-page .middle-line { border-color: #526075; }
+.dark-page .axis-y { color: #A7B0BE; background-color: rgba(31,41,55,0.80); }
+.dark-page .empty-mask { background-color: rgba(31,41,55,0.86); }
+.dark-page .calendar-selected { border-color: #4EA3FF; background-color: #112B4A; }
+.dark-page .pnl-map { background-color: #111827; }
+</style>

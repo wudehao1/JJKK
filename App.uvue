@@ -1,0 +1,269 @@
+<script lang="uts">
+export default {
+  onLaunch: function () {
+    console.log('Fund Quick Look Launch')
+  },
+  onShow: function () {
+    console.log('Fund Quick Look Show')
+  },
+  onHide: function () {
+    console.log('Fund Quick Look Hide')
+  }
+}
+</script>
+
+<style>
+page {
+  background-color: #F2F5F3;
+  color: #17201D;
+  font-size: 13px;
+}
+
+button::after {
+  border: none;
+}
+
+.page {
+  min-height: 100%;
+  padding: 14px;
+  background-color: #F2F5F3;
+}
+
+.panel {
+  padding: 14px;
+  border-radius: 8px;
+  background-color: #FFFFFF;
+}
+
+.row {
+  flex-direction: row;
+  align-items: center;
+}
+
+.between {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  color: #17201D;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.muted {
+  color: #64706B;
+  font-size: 12px;
+}
+
+.field {
+  height: 42px;
+  margin-top: 10px;
+  padding: 0 12px;
+  border-radius: 6px;
+  background-color: #F2F5F3;
+  color: #17201D;
+  font-size: 14px;
+}
+
+.primary-button {
+  height: 42px;
+  border-radius: 6px;
+  background-color: #0F766E;
+  color: #FFFFFF;
+  font-size: 14px;
+}
+
+.ghost-button {
+  height: 34px;
+  line-height: 34px;
+  border-radius: 6px;
+  background-color: #EEF2EF;
+  color: #17201D;
+  font-size: 13px;
+}
+
+.danger-button {
+  height: 34px;
+  line-height: 34px;
+  border-radius: 6px;
+  background-color: #FDE8E5;
+  color: #B42318;
+  font-size: 13px;
+}
+
+.fund-row {
+  margin-top: 10px;
+  padding: 13px;
+  border-radius: 8px;
+  background-color: #FFFFFF;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fund-main {
+  flex: 1;
+  padding-right: 10px;
+}
+
+.fund-name {
+  color: #17201D;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.fund-code {
+  display: block;
+  margin-top: 5px;
+  color: #64706B;
+  font-size: 12px;
+}
+
+.fund-side {
+  align-items: flex-end;
+}
+
+.return-text {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.up {
+  color: #C2410C;
+}
+
+.down {
+  color: #15803D;
+}
+
+.flat {
+  color: #64706B;
+}
+
+
+/* Global dark theme */
+.dark-page,
+.dark-page.market-page,
+.dark-page.watch-page,
+.dark-page.detail-page,
+.dark-page.info-page,
+.dark-page.me-page {
+  background-color: #111827;
+  color: #F9FAFB;
+}
+
+.dark-page .index-card,
+.dark-page .status-panel,
+.dark-page .stat-card,
+.dark-page .chart-card,
+.dark-page .list-card,
+.dark-page .result-card,
+.dark-page .search-trigger,
+.dark-page .search-card,
+.dark-page .popup-panel,
+.dark-page .popup-empty,
+.dark-page .disclaimer-card,
+.dark-page .detail-card,
+.dark-page .loading-card,
+.dark-page .empty-card,
+.dark-page .stats-card,
+.dark-page .menu-card,
+.dark-page .feedback-panel,
+.dark-page .profile-panel {
+  background-color: #1F2937;
+}
+
+.dark-page .index-name,
+.dark-page .index-price,
+.dark-page .status-value,
+.dark-page .status-time,
+.dark-page .fund-name,
+.dark-page .section-title,
+.dark-page .popup-title,
+.dark-page .empty-title,
+.dark-page .nav-value,
+.dark-page .detail-title,
+.dark-page .content-text,
+.dark-page .stat-value,
+.dark-page .menu-title,
+.dark-page .feedback-title,
+.dark-page .profile-avatar-text,
+.dark-page .result-name,
+.dark-page .info-title {
+  color: #F9FAFB;
+}
+
+.dark-page .index-code,
+.dark-page .muted,
+.dark-page .status-label,
+.dark-page .fund-code,
+.dark-page .time-text,
+.dark-page .metric-sub,
+.dark-page .head-name,
+.dark-page .head-col,
+.dark-page .head-col-text,
+.dark-page .section-count,
+.dark-page .popup-empty-sub,
+.dark-page .empty-sub,
+.dark-page .disclaimer-text,
+.dark-page .date-text,
+.dark-page .summary-text,
+.dark-page .source-text,
+.dark-page .loading-text,
+.dark-page .stat-label,
+.dark-page .menu-value,
+.dark-page .menu-arrow,
+.dark-page .profile-tip,
+.dark-page .chart-time,
+.dark-page .chart-title,
+.dark-page .axis-x-text,
+.dark-page .axis-y {
+  color: #A7B0BE;
+}
+
+.dark-page .search-box,
+.dark-page .theme-option,
+.dark-page .feedback-textarea,
+.dark-page .feedback-input,
+.dark-page .category-pill,
+.dark-page .profile-avatar-button,
+.dark-page .profile-nickname-input,
+.dark-page .range-tabs,
+.dark-page .chart-plot {
+  background-color: #111827;
+}
+
+.dark-page .result-head,
+.dark-page .result-row,
+.dark-page .watch-row,
+.dark-page .list-head,
+.dark-page .menu-row,
+.dark-page .theme-panel {
+  border-color: #374151;
+}
+
+.dark-page .grid-line {
+  background-color: #374151;
+}
+
+.dark-page .zero-line,
+.dark-page .middle-line,
+.dark-page .active-line {
+  border-color: #64748B;
+}
+
+.dark-page .active-range,
+.dark-page .filter-active,
+.dark-page .theme-active,
+.dark-page .category-active {
+  background-color: #0F274A;
+}
+
+.dark-page .field,
+.dark-page input,
+.dark-page textarea {
+  color: #F9FAFB;
+}
+</style>

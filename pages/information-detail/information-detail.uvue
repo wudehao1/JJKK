@@ -1,0 +1,189 @@
+<template>
+
+  <view class="page detail-page" :class="themeMode === 'dark' ? 'dark-page' : ''">
+
+    <view class="detail-card" v-if="detail">
+
+      <view class="detail-head">
+
+        <text class="detail-time">{{ dateText(detail.publishTime) }}</text>
+
+        <text v-if="isImportant(detail)" class="important-tag">重要</text>
+
+      </view>
+
+      <text class="detail-title" :class="isImportant(detail) ? 'important-title' : ''">{{ detail.title }}</text>
+
+      <text class="source-text">{{ detail.sourceName || '外部信息源' }}</text>
+
+      <text class="content-text">{{ detail.content || detail.summary || '' }}</text>
+
+
+
+      <view v-if="symbols.length > 0" class="symbol-wrap">
+
+        <text v-for="symbol in symbols" :key="symbol" class="symbol-tag">{{ symbol }}</text>
+
+      </view>
+
+
+
+      <view v-if="images.length > 0" class="image-wrap">
+
+        <image v-for="image in images" :key="image" class="detail-image" :src="image" mode="widthFix"></image>
+
+      </view>
+
+    </view>
+
+
+
+    <view v-else class="loading-card">
+
+      <text class="loading-text">{{ loading ? '加载中...' : '信息不存在或已过期' }}</text>
+
+    </view>
+
+  </view>
+
+</template>
+
+
+
+<script>
+import { applyTheme, getThemeMode, setThemeMode } from '../../common/theme.js'
+import { getInformationDetail } from '../../common/api.js'
+
+
+
+export default {
+
+  data() {
+
+    return {
+
+      themeMode: getThemeMode(),
+      id: 0,
+
+      detail: null,
+
+      loading: false
+
+    }
+
+  },
+
+  computed: {
+
+    images() {
+
+      if (!this.detail) return []
+
+      const list = []
+
+      if (this.detail.imageUrls && this.detail.imageUrls.length) list.push(...this.detail.imageUrls)
+
+      if (this.detail.chartUrls && this.detail.chartUrls.length) list.push(...this.detail.chartUrls)
+
+      return list
+
+    },
+
+    symbols() {
+
+      return this.detail && this.detail.symbols ? this.detail.symbols : []
+
+    }
+
+  },
+
+  onLoad(options) {
+
+    this.id = Number(options.id || 0)
+
+    this.load()
+
+  },
+
+  onShow() {
+    this.applyPageTheme()
+  },
+  methods: {
+    applyPageTheme() {
+      this.themeMode = getThemeMode()
+      applyTheme()
+    },
+    load() {
+
+      if (!this.id) return
+
+      this.loading = true
+
+      getInformationDetail(this.id).then((detail) => {
+
+        this.detail = detail
+
+      }).finally(() => {
+
+        this.loading = false
+
+      })
+
+    },
+
+    isImportant(item) {
+
+      return item && item.importance === 'IMPORTANT'
+
+    },
+
+    dateText(value) {
+
+      if (!value) return '--'
+
+      return String(value).replace('T', ' ').slice(0, 16)
+
+    }
+
+  }
+
+}
+
+</script>
+
+
+
+<style>
+
+.detail-page { min-height: 100%; padding: 12px; background-color: #F4F6FA; }
+
+.detail-card { padding: 16px; border-radius: 8px; background-color: #FFFFFF; }
+
+.detail-head { flex-direction: row; align-items: center; justify-content: space-between; }
+
+.detail-time { color: #8A93A3; font-size: 12px; }
+
+.important-tag { height: 20px; line-height: 20px; padding: 0 8px; border-radius: 10px; background-color: #FEE4E2; color: #D94252; font-size: 11px; font-weight: 800; }
+
+.detail-title { display: block; margin-top: 10px; color: #1F2937; font-size: 18px; font-weight: 800; line-height: 26px; }
+
+.important-title { color: #D94252; }
+
+.source-text { display: block; margin-top: 7px; color: #98A2B3; font-size: 12px; }
+
+.content-text { display: block; margin-top: 15px; color: #344054; font-size: 14px; line-height: 23px; white-space: pre-wrap; }
+
+.symbol-wrap { margin-top: 12px; flex-direction: row; flex-wrap: wrap; }
+
+.symbol-tag { margin-right: 6px; margin-bottom: 6px; padding: 4px 8px; border-radius: 10px; background-color: #F1F5F9; color: #475467; font-size: 11px; }
+
+.image-wrap { margin-top: 12px; }
+
+.detail-image { width: 100%; margin-bottom: 10px; border-radius: 8px; background-color: #EEF2F7; }
+
+.loading-card { padding: 34px 0; border-radius: 8px; background-color: #FFFFFF; align-items: center; justify-content: center; }
+
+.loading-text { color: #98A2B3; font-size: 13px; }
+
+</style>
+

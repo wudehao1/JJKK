@@ -1,0 +1,99 @@
+{
+  "pages": [
+    {
+      "path": "pages/index/index",
+      "style": {
+        "navigationBarTitleText": "\u5927\u76d8"
+      }
+    },
+    {
+      "path": "pages/watchlist/watchlist",
+      "style": {
+        "navigationBarTitleText": "\u81ea\u9009"
+      }
+    },
+    {
+      "path": "pages/holdings/holdings",
+      "style": {
+        "navigationBarTitleText": "\u6301\u6709"
+      }
+    },
+    {
+      "path": "pages/profit-analysis/profit-analysis",
+      "style": {
+        "navigationBarTitleText": "\u76c8\u4e8f\u5206\u6790"
+      }
+    },
+    {
+      "path": "pages/market-detail/market-detail",
+      "style": {
+        "navigationBarTitleText": "\u5927\u76d8\u5206\u65f6"
+      }
+    },
+    {
+      "path": "pages/fund-detail/fund-detail",
+      "style": {
+        "navigationBarTitleText": "\u57fa\u91d1\u5206\u65f6"
+      }
+    },
+    {
+      "path": "pages/information/information",
+      "style": {
+        "navigationBarTitleText": "\u4fe1\u606f"
+      }
+    },
+    {
+      "path": "pages/information-detail/information-detail",
+      "style": {
+        "navigationBarTitleText": "\u8d44\u8baf\u8be6\u60c5"
+      }
+    },
+    {
+      "path": "pages/me/me",
+      "style": {
+        "navigationBarTitleText": "\u6211\u7684"
+      }
+    },
+    {
+      "path": "pages/sector-rankings/sector-rankings",
+      "style": {
+        "navigationBarTitleText": "\u677f\u5757\u6da8\u8dcc"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "\u57fa\u91d1\u5feb\u770b",
+    "navigationBarBackgroundColor": "#F7FAF8",
+    "backgroundColor": "#F2F5F3"
+  },
+  "tabBar": {
+    "color": "#64706B",
+    "selectedColor": "#1677F2",
+    "backgroundColor": "#FFFFFF",
+    "borderStyle": "black",
+    "list": [
+      {
+        "pagePath": "pages/index/index",
+        "text": "\u5927\u76d8"
+      },
+      {
+        "pagePath": "pages/watchlist/watchlist",
+        "text": "\u81ea\u9009"
+      },
+      {
+        "pagePath": "pages/holdings/holdings",
+        "text": "\u6301\u6709"
+      },
+      {
+        "pagePath": "pages/information/information",
+        "text": "\u4fe1\u606f"
+      },
+      {
+        "pagePath": "pages/me/me",
+        "text": "\u6211\u7684"
+      }
+    ]
+  },
+  "uniIdRouter": {}
+}

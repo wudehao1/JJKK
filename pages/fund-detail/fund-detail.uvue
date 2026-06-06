@@ -1,0 +1,1164 @@
+﻿<template>
+  <view class="detail-page" :class="themeMode === 'dark' ? 'dark-page' : ''">
+    <view class="hero">
+      <view class="nav-row">
+        <text class="back" @click="goBack">←</text>
+        <text class="nav-title">基金详情</text>
+        <text class="nav-space"></text>
+      </view>
+      <view class="hero-meta">
+        <text class="state-pill" :class="statusClass">{{ statusText }}</text>
+        <text class="code-text">{{ fundCode }}</text>
+      </view>
+      <text class="name-text">{{ fundName || fundCode }}</text>
+    </view>
+
+    <view class="stat-card">
+      <view class="stat-main">
+        <text class="stat-big" :class="valueClassName(summaryEstimatePct)">{{ chartValueText(summaryEstimatePct) }}</text>
+        <text class="stat-label">{{ officialNavUpdated ? '真实涨幅' : '估算涨幅' }}({{ summaryDateText }})</text>
+      </view>
+      <view class="stat-block">
+        <text class="stat-value" :class="valueClassName(summaryDailyPct)">{{ chartValueText(summaryDailyPct) }}</text>
+        <text class="stat-label">日涨幅({{ navDateText }})</text>
+      </view>
+      <view class="stat-block">
+        <text class="stat-value">{{ navValue(summaryNav) }}</text>
+        <text class="stat-label">净值({{ navDateText }})</text>
+      </view>
+    </view>
+
+    <view class="chart-card">
+      <view class="chart-head">
+        <view>
+          <text class="chart-time">{{ pointDateText(selectedPoint) }}</text>
+          <view class="row">
+            <text class="chart-title">{{ chartTitle }}</text>
+            <text class="chart-change" :class="valueClassName(selectedPoint ? selectedPoint.value : lastChangePct)">{{ chartValueText(selectedPoint ? selectedPoint.value : lastChangePct) }}</text>
+          </view>
+        </view>
+        <view class="detail-refresh" @click="refreshChart">
+          <text class="detail-refresh-icon" :class="loading ? 'refreshing' : ''">↻</text>
+          <text class="detail-refresh-text">{{ loading ? '刷新中' : '刷新' }}</text>
+        </view>
+      </view>
+
+      <view class="chart-shell">
+        <view
+          id="fundChartBox"
+          class="chart-plot"
+          :style="'height:' + chartHeight + 'px;'"
+          @touchstart="handleChartTouchStart"
+          @touchmove="handleChartTouchMove"
+          @touchend="keepActivePoint"
+          @touchcancel="keepActivePoint"
+        >
+          <view v-if="displayPoints.length > 0" class="chart-gradient" :style="chartModel.fillStyle"></view>
+          <view class="grid-line grid-top"></view>
+          <view class="grid-line grid-mid"></view>
+          <view class="grid-line grid-bottom"></view>
+          <view class="zero-line" :style="chartModel.zeroStyle"></view>
+          <view v-if="currentRange === 'today'" class="middle-line" :style="chartModel.middleStyle"></view>
+          <view v-for="segment in chartModel.segments" :key="segment.key" class="line-segment" :style="segment.style"></view>
+          <view
+            v-for="marker in tradeMarkers"
+            :key="marker.key"
+            class="trade-marker"
+            :class="marker.type === 'BUY' ? 'trade-marker-buy' : 'trade-marker-sell'"
+            :style="marker.style"
+          ></view>
+          <view v-if="activePoint" class="active-line" :style="chartModel.activeLineStyle"></view>
+          <text v-if="activePoint" class="active-bubble" :style="chartModel.activeLabelStyle">{{ activeBubbleText }}</text>
+          <text class="axis-y axis-top">{{ chartTopLabel }}</text>
+          <text class="axis-y axis-bottom">{{ chartBottomLabel }}</text>
+          <view v-if="displayPoints.length === 0" class="empty-mask">
+            <text class="empty-text">暂无走势数据</text>
+          </view>
+          <view v-if="currentRange === 'today' && barrageEnabled" class="barrage-layer">
+            <view
+              v-for="item in barrageViews"
+              :key="item.key"
+              class="barrage-item"
+              :style="item.style"
+            >
+              <text class="barrage-text" :style="'color:' + item.color + ';'">{{ item.content }}</text>
+            </view>
+          </view>
+        </view>
+        <view class="axis-x">
+          <text class="axis-x-text">{{ axisStartLabel }}</text>
+          <text class="axis-x-text">{{ axisMiddleLabel }}</text>
+          <text class="axis-x-text">{{ axisEndLabel }}</text>
+        </view>
+        <view v-if="tradeMarkers.length > 0" class="trade-legend">
+          <view class="trade-legend-item">
+            <view class="trade-legend-dot trade-marker-buy"></view>
+            <text class="trade-legend-text">已成交买入</text>
+          </view>
+          <view class="trade-legend-item">
+            <view class="trade-legend-dot trade-marker-sell"></view>
+            <text class="trade-legend-text">已成交卖出</text>
+          </view>
+        </view>
+      </view>
+
+      <view v-if="currentRange === 'today'" class="barrage-panel">
+        <view class="barrage-head">
+          <view>
+            <text class="barrage-title">弹幕</text>
+            <text class="barrage-note">叠在分时图上，只播放一次</text>
+          </view>
+          <view class="barrage-toggle" :class="barrageEnabled ? '' : 'barrage-toggle-off'" @click="toggleBarrage">
+            <text class="barrage-toggle-text">{{ barrageEnabled ? '屏蔽弹幕' : '显示弹幕' }}</text>
+          </view>
+        </view>
+        <text class="barrage-state-text">{{ barrageEnabled ? '最多15条 · 10分钟后消失' : '弹幕已屏蔽，点击显示弹幕会重新播放一次' }}</text>
+        <view class="barrage-color-row">
+          <view
+            v-for="color in barrageColors"
+            :key="color"
+            class="barrage-color-dot"
+            :class="barrageColor === color ? 'barrage-color-active' : ''"
+            :style="'background-color:' + color + ';'"
+            @click="selectBarrageColor(color)"
+          ></view>
+        </view>
+        <view class="barrage-input-row">
+          <input
+            class="barrage-input"
+            v-model="barrageInput"
+            maxlength="60"
+            confirm-type="send"
+            placeholder="发条弹幕，颜文字和Emoji都可以"
+            @confirm="sendBarrage"
+          />
+          <view class="barrage-send" :class="barrageSending ? 'barrage-send-disabled' : ''" @click="sendBarrage">
+            <text class="barrage-send-text">{{ barrageSending ? '发送中' : '发送' }}</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="range-tabs">
+        <view v-for="item in ranges" :key="item.key" class="range-tab" :class="currentRange === item.key ? 'active-range' : ''" @click="changeRange(item.key)">
+          <text class="range-label" :class="currentRange === item.key ? 'active-range-text' : ''">{{ item.label }}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="detail-actions">
+      <view class="detail-action primary-action" @click="openBuyPopup">
+        <text class="action-symbol">＋</text>
+        <text class="action-label primary-label">添加持有</text>
+      </view>
+      <view class="detail-action" :class="watchId ? '' : 'disabled-action'" @click="removeFromWatchlist">
+        <text class="action-symbol delete-symbol">×</text>
+        <text class="action-label delete-label">删除自选</text>
+      </view>
+      <view class="detail-action" @click="openAlertPopup">
+        <text class="action-symbol alert-symbol">!</text>
+        <text class="action-label">提醒</text>
+      </view>
+    </view>
+
+    <view v-if="showBuyPopup" class="popup-mask" @click="closeBuyPopup">
+      <view class="popup-panel" @click.stop>
+        <view class="popup-head">
+          <view>
+            <text class="popup-title">模拟买入</text>
+            <text class="popup-sub">{{ fundName || fundCode }} · {{ fundCode }}</text>
+          </view>
+          <button class="popup-close" @click="closeBuyPopup">关闭</button>
+        </view>
+        <view class="form-grid">
+          <view class="field-block field-block-full">
+            <text class="field-label">账户名称</text>
+            <input class="field-input" v-model="buyForm.accountName" placeholder="默认账户" maxlength="32" />
+          </view>
+          <view class="field-block">
+            <text class="field-label">买入金额</text>
+            <input class="field-input" type="digit" v-model="buyForm.amount" placeholder="金额或份额填一项" />
+          </view>
+          <view class="field-block">
+            <text class="field-label">买入份额</text>
+            <input class="field-input" type="digit" v-model="buyForm.share" placeholder="金额或份额填一项" />
+          </view>
+          <view class="field-block">
+            <text class="field-label">成交净值（可空）</text>
+            <input class="field-input" type="digit" v-model="buyForm.nav" placeholder="留空自动确认" />
+          </view>
+          <view class="field-block">
+            <text class="field-label">手续费</text>
+            <input class="field-input" type="digit" v-model="buyForm.fee" placeholder="默认 0" />
+          </view>
+          <view class="field-block field-block-full">
+            <text class="field-tip">净值留空：交易时段与午休按今天净值，其他时间按下一个交易日净值。</text>
+          </view>
+        </view>
+        <button class="submit-button" :loading="trading" @click="submitBuy">{{ trading ? '提交中...' : '确认模拟买入' }}</button>
+      </view>
+    </view>
+
+    <view v-if="showAlertPopup" class="popup-mask" @click="closeAlertPopup">
+      <view class="popup-panel alert-panel" @click.stop>
+        <view class="popup-head">
+          <view>
+            <text class="popup-title">提醒</text>
+            <text class="popup-sub">{{ fundName || fundCode }} · {{ fundCode }}</text>
+          </view>
+          <button class="popup-close" @click="closeAlertPopup">关闭</button>
+        </view>
+
+        <scroll-view scroll-y class="alert-scroll">
+          <view class="alert-quote">
+            <view class="alert-quote-main">
+              <text class="alert-quote-label">最新净值</text>
+              <text class="alert-quote-value">{{ navValue(summaryNav) }}</text>
+            </view>
+            <view class="alert-quote-side">
+              <text class="alert-quote-time">{{ alertTimeText }}</text>
+              <text class="alert-quote-change" :class="valueClassName(summaryEstimatePct)">{{ chartValueText(summaryEstimatePct) }}</text>
+            </view>
+          </view>
+
+          <view class="alert-section">
+            <view class="alert-section-head">
+              <text class="alert-section-title">提醒条件</text>
+              <text class="alert-section-note">至少开启一项</text>
+            </view>
+            <view v-for="(item, index) in alertRules" :key="item.key" class="alert-rule">
+              <view class="alert-rule-main">
+                <text class="alert-rule-label">{{ item.label }}</text>
+                <view class="alert-input-shell" :class="item.enabled ? 'alert-input-active' : ''">
+                  <input class="alert-input" type="digit" v-model="item.threshold" :placeholder="item.placeholder" />
+                  <text class="alert-input-unit">{{ item.unit }}</text>
+                </view>
+              </view>
+              <view class="rule-switch" :class="item.enabled ? 'rule-switch-on' : ''" @click="toggleAlertRule(index)">
+                <view class="rule-switch-knob" :class="item.enabled ? 'rule-switch-knob-on' : ''"></view>
+              </view>
+            </view>
+          </view>
+
+          <view class="alert-section">
+            <view class="alert-section-head">
+              <text class="alert-section-title">提醒时间</text>
+              <text class="alert-section-note">单选，默认及时提醒</text>
+            </view>
+            <view v-for="item in remindModes" :key="item.key" class="remind-row" @click="setRemindMode(item.key)">
+              <view class="radio-ring" :class="alertForm.remindMode === item.key ? 'radio-ring-active' : ''">
+                <view v-if="alertForm.remindMode === item.key" class="radio-core"></view>
+              </view>
+              <view class="remind-copy">
+                <text class="remind-label">{{ item.label }}</text>
+                <text class="remind-note">{{ item.note }}</text>
+              </view>
+              <picker v-if="item.key === 'CUSTOM' && alertForm.remindMode === 'CUSTOM'" mode="time" :value="alertForm.customTime" @change="changeCustomTime">
+                <view class="custom-time">
+                  <text class="custom-time-text">{{ alertForm.customTime || '选择时间' }}</text>
+                </view>
+              </picker>
+            </view>
+          </view>
+        </scroll-view>
+
+        <button class="submit-button" :loading="alertSaving" @click="submitAlert">{{ alertSaving ? '保存中...' : '确认提醒' }}</button>
+      </view>
+    </view>
+  </view>
+</template>
+
+<script>
+import { applyTheme, getThemeMode, setThemeMode } from '../../common/theme.js'
+import {
+  ensureUser,
+  getFundDetail,
+  getFundMinute,
+  getFundHistory,
+  getFundBullets,
+  sendFundBullet,
+  listWatchlist,
+  deleteWatchlist,
+  simulateHoldingTrade,
+  getHoldingTransactions,
+  getFundAlertSettings,
+  saveFundAlertSettings,
+  navText,
+  valueClass
+} from '../../common/api.js'
+import { buildLineChartModel, buildLineMarkerViews, locateLinePoint } from '../../common/line-chart.js'
+
+export default {
+  data() {
+    return {
+      themeMode: getThemeMode(),
+      fundCode: '',
+      fundName: '',
+      detail: null,
+      loading: false,
+      dataStatus: '',
+      updatedAt: '',
+      currentRange: 'today',
+      ranges: [
+        { key: 'today', label: '今天' },
+        { key: '1m', label: '近1月' },
+        { key: '3m', label: '近3月' },
+        { key: '6m', label: '近6月' },
+        { key: '1y', label: '近1年' }
+      ],
+      chartPoints: [],
+      lastRawValue: null,
+      lastChangePct: null,
+      chartWidth: 320,
+      chartHeight: 248,
+      chartLeft: 26,
+      activePoint: null,
+      touchStartX: 0,
+      touchStartY: 0,
+      timer: 0,
+      userId: 0,
+      watchId: 0,
+      tradeTransactions: [],
+      showBuyPopup: false,
+      trading: false,
+      buyForm: {
+        accountName: '默认账户',
+        amount: '',
+        share: '',
+        nav: '',
+        fee: ''
+      },
+      showAlertPopup: false,
+      alertSaving: false,
+      alertForm: {
+        remindMode: 'IMMEDIATE',
+        customTime: '14:30'
+      },
+      remindModes: [
+        { key: 'IMMEDIATE', label: '及时提醒', note: '达到目标后立即提醒' },
+        { key: 'AT_1430', label: '14:30 提醒', note: '交易日下午统一提醒' },
+        { key: 'CUSTOM', label: '自定义时间', note: '按你选择的时间提醒' }
+      ],
+      alertRules: [
+        { key: 'DAILY_RISE', label: '日涨幅', unit: '%', placeholder: '例如 2.00', enabled: false, threshold: '' },
+        { key: 'DAILY_FALL', label: '日跌幅', unit: '%', placeholder: '例如 2.00', enabled: false, threshold: '' },
+        { key: 'NAV_RISE', label: '涨到目标净值', unit: '净值', placeholder: '例如 1.2500', enabled: false, threshold: '' },
+        { key: 'NAV_FALL', label: '跌到目标净值', unit: '净值', placeholder: '例如 0.9500', enabled: false, threshold: '' }
+      ],
+      barrageEnabled: true,
+      barrageSending: false,
+      barrageInput: '',
+      barrageColor: '#1677F2',
+      barrageCycle: 0,
+      barrageItems: [],
+      barrageViews: [],
+      barrageColors: ['#1677F2', '#D94252', '#18A875', '#F59E0B', '#8B5CF6', '#111827']
+    }
+  },
+  computed: {
+    displayPoints() {
+      return this.chartPoints || []
+    },
+    selectedPoint() {
+      if (this.activePoint) return this.activePoint
+      return this.displayPoints.length > 0 ? this.displayPoints[this.displayPoints.length - 1] : null
+    },
+    chartModel() {
+      return buildLineChartModel(this.displayPoints, {
+        width: this.chartWidth,
+        height: this.chartHeight,
+        activeIndex: this.activePoint ? this.activePoint.index : -1,
+        symmetric: this.currentRange === 'today'
+      })
+    },
+    tradeMarkers() {
+      if (this.currentRange === 'today') return []
+      return buildLineMarkerViews(this.displayPoints, this.tradeTransactions, {
+        width: this.chartWidth,
+        height: this.chartHeight,
+        symmetric: false
+      })
+    },
+    chartScale() {
+      const values = this.displayPoints.map((item) => Number(item.value)).filter((item) => Number.isFinite(item))
+      if (!values.length) return { min: -1, max: 1 }
+      let min = Math.min.apply(null, values)
+      let max = Math.max.apply(null, values)
+      if (this.currentRange === 'today') {
+        const bound = Math.max(Math.abs(min), Math.abs(max), 0.01)
+        return { min: -bound, max: bound }
+      }
+      min = Math.min(min, 0)
+      max = Math.max(max, 0)
+      if (min === max) {
+        const spread = Math.max(Math.abs(max), 1)
+        min -= spread
+        max += spread
+      }
+      const padding = (max - min) * 0.08
+      return { min: min - padding, max: max + padding }
+    },
+    chartTopLabel() {
+      return this.chartValueText(this.chartScale.max)
+    },
+    chartBottomLabel() {
+      return this.chartValueText(this.chartScale.min)
+    },
+    axisStartLabel() {
+      if (this.currentRange === 'today') return '09:30'
+      return this.pointDateText(this.displayPoints[0])
+    },
+    axisMiddleLabel() {
+      if (this.currentRange === 'today') return '11:30/13:00'
+      if (!this.displayPoints.length) return '--'
+      return this.pointDateText(this.displayPoints[Math.floor(this.displayPoints.length / 2)])
+    },
+    axisEndLabel() {
+      if (this.currentRange === 'today') return '15:00'
+      return this.pointDateText(this.displayPoints[this.displayPoints.length - 1])
+    },
+    statusText() {
+      const key = this.effectiveDataStatus
+      if (key === 'CLOSED') return '已收盘'
+      if (key === 'DELAYED') return '估算延迟'
+      if (key === 'ERROR') return '估算异常'
+      return this.officialNavUpdated ? '已更新' : '实时估算'
+    },
+    statusClass() {
+      const key = this.effectiveDataStatus
+      if (key === 'CLOSED') return 'state-updated'
+      if (key === 'DELAYED') return 'state-delayed'
+      if (key === 'ERROR') return 'state-error'
+      return this.officialNavUpdated ? 'state-updated' : 'state-pending'
+    },
+    effectiveDataStatus() {
+      const key = String((this.detail && this.detail.dataStatus) || this.dataStatus || '').toUpperCase()
+      return key || 'NORMAL'
+    },
+    officialNavUpdated() {
+      if (!this.detail || !this.detail.latestNavDate) return false
+      if (this.detail.dataStatus !== 'CLOSED') return false
+      return String(this.detail.latestNavDate).slice(0, 10) >= this.expectedOfficialNavDate()
+    },
+    summaryEstimatePct() {
+      if (this.officialNavUpdated && this.detail && this.detail.latestDailyReturnPct !== null && this.detail.latestDailyReturnPct !== undefined) {
+        return this.detail.latestDailyReturnPct
+      }
+      if (this.selectedPoint) return this.selectedPoint.value
+      if (this.detail && this.detail.estimateReturnPct !== null && this.detail.estimateReturnPct !== undefined) return this.detail.estimateReturnPct
+      return this.lastChangePct
+    },
+    summaryDailyPct() {
+      return this.detail ? this.detail.latestDailyReturnPct : null
+    },
+    summaryNav() {
+      if (this.officialNavUpdated && this.detail && this.detail.latestUnitNav) return this.detail.latestUnitNav
+      if (this.selectedPoint && this.selectedPoint.rawValue) return this.selectedPoint.rawValue
+      if (this.detail && this.detail.estimateNav) return this.detail.estimateNav
+      return this.detail ? this.detail.latestUnitNav : this.lastRawValue
+    },
+    summaryDateText() {
+      if (this.officialNavUpdated && this.detail && this.detail.latestNavDate) return String(this.detail.latestNavDate).slice(5, 10)
+      return this.pointDateText(this.selectedPoint).slice(0, 5)
+    },
+    navDateText() {
+      if (this.detail && this.detail.latestNavDate) return String(this.detail.latestNavDate).slice(5, 10)
+      return this.summaryDateText
+    },
+    chartTitle() {
+      return this.currentRange === 'today' ? (this.officialNavUpdated ? '真实涨幅' : '估算涨幅') : '区间走势'
+    },
+    activeBubbleText() {
+      if (!this.activePoint || !this.activePoint.time) return '--'
+      const text = String(this.activePoint.time).replace('T', ' ')
+      return this.currentRange === 'today' ? text.slice(11, 16) : text.slice(5, 10)
+    },
+    alertTimeText() {
+      const last = this.displayPoints.length ? this.displayPoints[this.displayPoints.length - 1] : null
+      const source = (last && last.time) || this.updatedAt || (this.detail && this.detail.estimateTime) || (this.detail && this.detail.latestNavDate)
+      if (!source) return '--'
+      return String(source).replace('T', ' ').slice(5, 16)
+    }
+  },
+  onLoad(options) {
+    this.fundCode = options.fundCode || ''
+    this.loadDetail()
+    this.load()
+    this.loadBarrages()
+  },
+  onReady() {
+    this.measureChart()
+  },
+  onShow() {
+    this.applyPageTheme()
+    this.measureChart()
+    this.startTimer()
+    ensureUser().then((userId) => {
+      this.userId = userId
+      this.loadWatchState()
+      this.loadTradeMarkers()
+    }).catch(() => {})
+  },
+  onHide() {
+    this.stopTimer()
+  },
+  onUnload() {
+    this.stopTimer()
+  },
+  methods: {
+    applyPageTheme() {
+      this.themeMode = getThemeMode()
+      applyTheme()
+    },
+    goBack() {
+      uni.navigateBack({ delta: 1 })
+    },
+    loadWatchState() {
+      if (!this.userId || !this.fundCode) return
+      listWatchlist(this.userId).then((items) => {
+        const current = (items || []).find((item) => String(item.fundCode) === String(this.fundCode))
+        this.watchId = current ? Number(current.id || 0) : 0
+      }).catch(() => {})
+    },
+    loadTradeMarkers() {
+      if (!this.userId || !this.fundCode) return
+      getHoldingTransactions(this.userId, { fundCode: this.fundCode, limit: 200 }).then((items) => {
+        this.tradeTransactions = (items || []).filter((item) => {
+          const sourceType = String(item.sourceType || '').toUpperCase()
+          const txnType = String(item.txnType || '').toUpperCase()
+          return Number(item.id || 0) > 0
+            && Number(item.nav || 0) > 0
+            && String(item.fundCode || '') === String(this.fundCode)
+            && (txnType === 'BUY' || txnType === 'SELL')
+            && sourceType.indexOf('PENDING') < 0
+        }).map((item) => ({
+          type: String(item.txnType || '').toUpperCase(),
+          time: item.confirmDate || item.txnDate,
+          nav: item.nav
+        }))
+      }).catch(() => {
+        this.tradeTransactions = []
+      })
+    },
+    openBuyPopup() {
+      if (!this.userId) {
+        ensureUser().then((userId) => {
+          this.userId = userId
+          this.openBuyPopup()
+        })
+        return
+      }
+      this.showBuyPopup = true
+    },
+    closeBuyPopup() {
+      if (this.trading) return
+      this.showBuyPopup = false
+    },
+    submitBuy() {
+      const amount = this.parseDecimal(this.buyForm.amount)
+      const share = this.parseDecimal(this.buyForm.share)
+      const nav = this.parseDecimal(this.buyForm.nav)
+      const fee = this.parseDecimal(this.buyForm.fee)
+      if (amount === null && share === null) {
+        uni.showToast({ title: '买入金额或份额至少填一项', icon: 'none' })
+        return
+      }
+      const payload = {
+        fundCode: this.fundCode,
+        txnType: 'BUY',
+        accountId: null,
+        accountName: String(this.buyForm.accountName || '').trim() || '默认账户',
+        amount,
+        share,
+        fee: fee === null ? 0 : fee
+      }
+      if (nav !== null) payload.nav = nav
+      this.trading = true
+      simulateHoldingTrade(this.userId, payload).then((result) => {
+        const pending = result && String(result.tradeStatus || '').toUpperCase() === 'PENDING'
+        uni.showToast({ title: pending ? '已提交，等待官方净值确认' : '模拟买入已记录', icon: 'none' })
+        this.showBuyPopup = false
+        this.buyForm.amount = ''
+        this.buyForm.share = ''
+        this.buyForm.nav = ''
+        this.buyForm.fee = ''
+        if (!pending) this.loadTradeMarkers()
+      }).finally(() => {
+        this.trading = false
+      })
+    },
+    removeFromWatchlist() {
+      if (!this.watchId) {
+        uni.showToast({ title: '当前基金不在自选中', icon: 'none' })
+        return
+      }
+      uni.showModal({
+        title: '删除自选？',
+        content: '确认从自选中删除 ' + (this.fundName || this.fundCode) + ' 吗',
+        success: (res) => {
+          if (!res.confirm) return
+          deleteWatchlist(this.userId, this.watchId).then(() => {
+            this.watchId = 0
+            uni.showToast({ title: '已删除自选', icon: 'none' })
+          })
+        }
+      })
+    },
+    openAlertPopup() {
+      if (!this.userId) {
+        ensureUser().then((userId) => {
+          this.userId = userId
+          this.openAlertPopup()
+        })
+        return
+      }
+      this.showAlertPopup = true
+      getFundAlertSettings(this.userId, this.fundCode).then((settings) => {
+        this.applyAlertSettings(settings)
+      }).catch(() => {})
+    },
+    closeAlertPopup() {
+      if (this.alertSaving) return
+      this.showAlertPopup = false
+    },
+    applyAlertSettings(settings) {
+      if (!settings) return
+      this.alertRules = this.alertRules.map((item) => {
+        const saved = (settings.rules || []).find((current) => current.ruleKey === item.key)
+        return {
+          ...item,
+          enabled: !!(saved && saved.enabled),
+          threshold: saved && saved.threshold !== null && saved.threshold !== undefined ? String(saved.threshold) : ''
+        }
+      })
+      this.alertForm.remindMode = settings.remindMode || 'IMMEDIATE'
+      this.alertForm.customTime = settings.customTime || '14:30'
+    },
+    toggleAlertRule(index) {
+      const next = this.alertRules.slice()
+      next[index] = { ...next[index], enabled: !next[index].enabled }
+      this.alertRules = next
+    },
+    setRemindMode(mode) {
+      this.alertForm.remindMode = mode
+    },
+    changeCustomTime(event) {
+      this.alertForm.customTime = event.detail.value || ''
+    },
+    submitAlert() {
+      const enabled = this.alertRules.filter((item) => item.enabled)
+      if (!enabled.length) {
+        uni.showToast({ title: '请至少开启一个提醒条件', icon: 'none' })
+        return
+      }
+      for (let index = 0; index < enabled.length; index += 1) {
+        const value = Number(enabled[index].threshold)
+        if (!Number.isFinite(value) || value <= 0) {
+          uni.showToast({ title: '请填写有效的' + enabled[index].label, icon: 'none' })
+          return
+        }
+      }
+      if (!this.alertForm.remindMode) {
+        uni.showToast({ title: '请选择提醒时间', icon: 'none' })
+        return
+      }
+      if (this.alertForm.remindMode === 'CUSTOM' && !this.alertForm.customTime) {
+        uni.showToast({ title: '请选择自定义提醒时间', icon: 'none' })
+        return
+      }
+      const payload = {
+        remindMode: this.alertForm.remindMode,
+        customTime: this.alertForm.remindMode === 'CUSTOM' ? this.alertForm.customTime : null,
+        rules: this.alertRules.map((item) => ({
+          ruleKey: item.key,
+          enabled: item.enabled,
+          threshold: item.enabled ? Number(item.threshold) : null
+        }))
+      }
+      this.alertSaving = true
+      saveFundAlertSettings(this.userId, this.fundCode, payload).then((settings) => {
+        this.applyAlertSettings(settings)
+        this.showAlertPopup = false
+        uni.showToast({ title: '提醒设置已保存', icon: 'success' })
+      }).finally(() => {
+        this.alertSaving = false
+      })
+    },
+    toggleBarrage() {
+      this.barrageEnabled = !this.barrageEnabled
+      if (this.barrageEnabled) {
+        this.loadBarrages()
+      } else {
+        this.barrageViews = []
+      }
+    },
+    selectBarrageColor(color) {
+      this.barrageColor = color || '#1677F2'
+    },
+    loadBarrages(replay = true) {
+      if (!this.fundCode || this.currentRange !== 'today') return
+      getFundBullets(this.fundCode).then((data) => {
+        if (!data || String(data.fundCode || '') !== String(this.fundCode)) return
+        this.barrageItems = data.items || []
+        if (replay && this.barrageEnabled) {
+          this.layoutBarrages()
+        }
+      }).catch(() => {})
+    },
+    sendBarrage() {
+      if (this.barrageSending) return
+      const content = String(this.barrageInput || '').trim()
+      if (!content) {
+        uni.showToast({ title: '先写点弹幕内容', icon: 'none' })
+        return
+      }
+      if (this.textLength(content) > 60) {
+        uni.showToast({ title: '弹幕最多60个字', icon: 'none' })
+        return
+      }
+      const beforeIds = new Set((this.barrageItems || []).map((item) => String(item.id || '')))
+      this.barrageSending = true
+      sendFundBullet(this.fundCode, {
+        content,
+        color: this.barrageColor || '#1677F2'
+      }).then((data) => {
+        this.barrageInput = ''
+        this.barrageEnabled = true
+        const items = data && data.items ? data.items : []
+        this.barrageItems = items
+        const fresh = items.find((item) => !beforeIds.has(String(item.id || ''))) || items[items.length - 1]
+        if (fresh) this.appendBarrageView(fresh)
+      }).finally(() => {
+        this.barrageSending = false
+      })
+    },
+    layoutBarrages() {
+      const now = Date.now()
+      const rows = (this.barrageItems || []).filter((item) => {
+        if (!item || !item.content) return false
+        const expiresAt = Date.parse(item.expiresAt || '')
+        return !Number.isFinite(expiresAt) || expiresAt > now
+      }).slice(-15).sort((a, b) => {
+        return Date.parse(a.createdAt || '') - Date.parse(b.createdAt || '')
+      })
+      const lanes = this.barrageLaneCount()
+      const laneNextDelay = Array.from({ length: lanes }).map((_, index) => index * 0.9)
+      const laneGap = 7.2
+      const duration = 18
+      this.barrageCycle += 1
+      const views = rows.map((item, index) => {
+        let lane = 0
+        for (let i = 1; i < lanes; i += 1) {
+          if (laneNextDelay[i] < laneNextDelay[lane]) lane = i
+        }
+        const content = String(item.content || '')
+        const width = Math.min(246, Math.max(78, this.textLength(content) * 13 + 38))
+        const top = this.barrageLaneTop(lane, String(item.id || index))
+        const delay = laneNextDelay[lane]
+        laneNextDelay[lane] += laneGap
+        return {
+          key: String(item.id || ('barrage-' + index)) + '-' + this.barrageCycle,
+          id: item.id || ('barrage-' + index),
+          content,
+          color: this.safeBarrageColor(item.color),
+          style: 'top:' + top + 'px;left:-' + width + 'px;min-width:' + width + 'px;animation-duration:' + duration + 's;animation-delay:' + delay.toFixed(1) + 's;'
+        }
+      })
+      this.barrageViews = views
+    },
+    appendBarrageView(item) {
+      const content = String(item.content || '')
+      if (!content) return
+      const lanes = this.barrageLaneCount()
+      const lane = this.barrageOffset(String(item.id || content), lanes)
+      const width = Math.min(246, Math.max(78, this.textLength(content) * 13 + 38))
+      const top = this.barrageLaneTop(lane, String(item.id || content))
+      const view = {
+        key: String(item.id || Date.now()) + '-send-' + Date.now(),
+        id: item.id || ('send-' + Date.now()),
+        content,
+        color: this.safeBarrageColor(item.color),
+        style: 'top:' + top + 'px;left:-' + width + 'px;min-width:' + width + 'px;animation-duration:18s;animation-delay:0.1s;'
+      }
+      const keepIds = new Set((this.barrageItems || []).slice(-15).map((row) => String(row.id || '')))
+      this.barrageViews = (this.barrageViews || []).filter((row) => keepIds.has(String(row.id || ''))).concat(view).slice(-15)
+    },
+    barrageLaneCount() {
+      return Math.max(4, Math.min(6, Math.floor((this.chartHeight - 68) / 28)))
+    },
+    barrageLaneTop(lane, seed) {
+      return 26 + lane * 28 + this.barrageOffset(seed, 4)
+    },
+    textLength(value) {
+      return Array.from(String(value || '')).length
+    },
+    safeBarrageColor(color) {
+      const value = String(color || '').trim()
+      return /^#[0-9A-Fa-f]{6}$/.test(value) ? value : '#1677F2'
+    },
+    barrageOffset(seed, max) {
+      let value = 0
+      for (let index = 0; index < seed.length; index += 1) {
+        value = (value * 31 + seed.charCodeAt(index)) % 9973
+      }
+      return value % Math.max(1, max)
+    },
+    parseDecimal(value) {
+      if (value === null || value === undefined || value === '') return null
+      const parsed = Number(value)
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+    },
+    changeRange(range) {
+      this.currentRange = range
+      this.activePoint = null
+      this.load()
+      this.startTimer()
+      if (range === 'today') {
+        this.loadBarrages()
+      } else {
+        this.barrageViews = []
+      }
+    },
+    refreshChart() {
+      this.activePoint = null
+      this.loadDetail()
+      this.load(true)
+      this.loadTradeMarkers()
+      this.loadBarrages(false)
+    },
+    responseMatchesFund(data) {
+      return !!data && (!data.fundCode || String(data.fundCode) === String(this.fundCode))
+    },
+    loadDetail() {
+      if (!this.fundCode) return
+      getFundDetail(this.fundCode).then((detail) => {
+        if (!this.responseMatchesFund(detail)) return
+        this.detail = detail
+        this.fundName = detail.fundName || this.fundName
+      }).catch(() => {})
+    },
+    load(showTip) {
+      if (!this.fundCode) return
+      this.loading = true
+      const action = this.currentRange === 'today' ? getFundMinute(this.fundCode) : getFundHistory(this.fundCode, this.currentRange)
+      action.then((data) => {
+        if (!this.responseMatchesFund(data)) return
+        this.fundName = data.fundName || this.fundName
+        this.dataStatus = data.dataStatus || ''
+        this.updatedAt = data.updatedAt || ''
+        this.chartPoints = this.buildChartPoints(data.points || [])
+        const last = this.chartPoints.length > 0 ? this.chartPoints[this.chartPoints.length - 1] : null
+        this.lastRawValue = last ? last.rawValue : null
+        this.lastChangePct = last ? last.changePct : null
+        this.measureChart()
+        if (this.currentRange === 'today') this.loadDetail()
+        if (showTip) uni.showToast({ title: '已刷新', icon: 'none' })
+      }).catch(() => {
+        this.chartPoints = []
+      }).finally(() => {
+        this.loading = false
+      })
+    },
+    buildChartPoints(rawPoints) {
+      const rows = rawPoints.map((point) => {
+        const rawValue = this.currentRange === 'today' ? point.estimateNav : (point.accumulatedNav || point.unitNav)
+        const sourceChange = point.estimateReturnPct !== null && point.estimateReturnPct !== undefined ? point.estimateReturnPct : point.dailyReturnPct
+        return { rawValue, sourceChange, time: point.quoteTime || point.navDate }
+      }).filter((point) => point.rawValue !== null && point.rawValue !== undefined && point.rawValue !== '')
+
+      if (this.currentRange === 'today') {
+        const first = Number(rows.length ? rows[0].rawValue : 0)
+        return rows.map((point) => {
+          let value = point.sourceChange
+          if ((value === null || value === undefined || value === '') && first) {
+            value = (Number(point.rawValue) - first) / first * 100
+          }
+          const numberValue = Number(value || 0)
+          return { value: numberValue, changePct: numberValue, rawValue: point.rawValue, time: point.time }
+        })
+      }
+
+      const first = Number(rows.length ? rows[0].rawValue : 0)
+      return rows.map((point) => {
+        const current = Number(point.rawValue || 0)
+        const value = first ? (current - first) / first * 100 : Number(point.sourceChange || 0)
+        return { value, changePct: value, rawValue: point.rawValue, time: point.time }
+      })
+    },
+    measureChart() {
+      this.$nextTick(() => {
+        const info = (() => {
+          if (uni.getWindowInfo) return uni.getWindowInfo()
+          if (typeof wx !== 'undefined' && wx.getWindowInfo) return wx.getWindowInfo()
+          return uni.getSystemInfoSync ? uni.getSystemInfoSync() : {}
+        })()
+        this.chartWidth = Math.max(280, (info.windowWidth || 375) - 52)
+        if (!uni.createSelectorQuery) return
+        const query = uni.createSelectorQuery().in(this)
+        query.select('#fundChartBox').boundingClientRect((rect) => {
+          if (rect && rect.width) {
+            this.chartWidth = Math.max(280, rect.width)
+            this.chartLeft = rect.left || 0
+          }
+        }).exec()
+      })
+    },
+    handleChartTouchStart(event) {
+      const source = this.touchSource(event)
+      if (!source) return
+      this.touchStartX = Number(source.clientX !== undefined ? source.clientX : source.pageX || source.x || 0)
+      this.touchStartY = Number(source.clientY !== undefined ? source.clientY : source.pageY || source.y || 0)
+      this.updateActivePoint(source)
+    },
+    handleChartTouchMove(event) {
+      const source = this.touchSource(event)
+      if (!source) return
+      const x = Number(source.clientX !== undefined ? source.clientX : source.pageX || source.x || 0)
+      const y = Number(source.clientY !== undefined ? source.clientY : source.pageY || source.y || 0)
+      const dx = Math.abs(x - this.touchStartX)
+      const dy = Math.abs(y - this.touchStartY)
+      if (dy > dx + 8) return
+      this.updateActivePoint(source)
+    },
+    touchSource(event) {
+      const touch = event.touches && event.touches.length > 0 ? event.touches[0] : null
+      const changed = event.changedTouches && event.changedTouches.length > 0 ? event.changedTouches[0] : null
+      return touch || changed
+    },
+    updateActivePoint(source) {
+      if (!this.displayPoints.length) return
+      let x = Number(source.x)
+      if (!Number.isFinite(x) || x > this.chartWidth + 20) {
+        const clientX = source.clientX !== undefined ? source.clientX : source.pageX
+        x = Number(clientX || 0) - this.chartLeft
+      }
+      const point = locateLinePoint(this.displayPoints, x, this.chartWidth, {
+        height: this.chartHeight,
+        symmetric: this.currentRange === 'today'
+      })
+      if (point) this.activePoint = point
+    },
+    keepActivePoint() {},
+    startTimer() {
+      this.stopTimer()
+      if (this.currentRange === 'today') {
+        this.timer = setInterval(() => { this.load() }, 60000)
+      }
+    },
+    stopTimer() {
+      if (this.timer) {
+        clearInterval(this.timer)
+        this.timer = 0
+      }
+    },
+    navValue(value) {
+      return navText(value)
+    },
+    chartValueText(value) {
+      if (value === null || value === undefined || value === '') return '--'
+      const numberValue = Number(value)
+      const sign = numberValue > 0 ? '+' : ''
+      return sign + numberValue.toFixed(2) + '%'
+    },
+    expectedOfficialNavDate() {
+      const date = new Date()
+      while (date.getDay() === 0 || date.getDay() === 6) {
+        date.setDate(date.getDate() - 1)
+      }
+      const pad = (value) => String(value).padStart(2, '0')
+      return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+    },
+    pointDateText(point) {
+      if (!point || !point.time) return '--'
+      const text = String(point.time).replace('T', ' ')
+      return this.currentRange === 'today' ? text.slice(5, 16) : text.slice(5, 10)
+    },
+    valueClassName(value) {
+      return valueClass(value)
+    }
+  }
+}
+</script>
+
+<style>
+.detail-page { min-height: 100%; padding: 0 0 18px; background-color: #F4F6FA; }
+.hero { padding: 16px 16px 72px; background: linear-gradient(135deg, #24AFFF 0%, #1677F2 78%); }
+.nav-row { height: 36px; flex-direction: row; align-items: center; justify-content: space-between; }
+.back { width: 38px; color: #FFFFFF; font-size: 30px; }
+.nav-title { flex: 1; color: #FFFFFF; font-size: 18px; font-weight: 800; text-align: center; }
+.nav-space { width: 38px; }
+.hero-meta { margin-top: 13px; flex-direction: row; align-items: center; }
+.state-pill { height: 20px; line-height: 20px; padding: 0 7px; border-radius: 5px; background-color: rgba(255,255,255,0.82); color: #1682F4; font-size: 10px; font-weight: 700; }
+.state-updated { color: #1682F4; }
+.state-pending { color: #9A6A00; background-color: rgba(255,255,255,0.72); }
+.state-delayed { color: #9A6700; background-color: #FFF4E5; }
+.state-error { color: #B42318; background-color: #FEE4E2; }
+.code-text { margin-left: 8px; color: #FFFFFF; font-size: 16px; font-weight: 700; }
+.name-text { display: block; margin-top: 7px; color: #FFFFFF; font-size: 22px; font-weight: 800; }
+.stat-card { margin: -52px 12px 10px; padding: 14px 13px; border-radius: 8px; background-color: #FFFFFF; flex-direction: row; align-items: flex-end; justify-content: space-between; box-shadow: 0 8px 22px rgba(23, 84, 168, 0.08); }
+.stat-main { flex: 1.18; }
+.stat-block { flex: 1; }
+.stat-value { color: #1F2A44; font-size: 17px; font-weight: 800; }
+.stat-big { color: #D94252; font-size: 27px; font-weight: 800; }
+.stat-label { display: block; margin-top: 5px; color: #9BA1AA; font-size: 11px; }
+.chart-card { margin: 10px 12px; padding: 12px 12px 10px; border-radius: 8px; background-color: #FFFFFF; }
+.chart-head { min-height: 30px; flex-direction: row; align-items: center; justify-content: space-between; }
+.detail-refresh { width: 66px; height: 28px; border-radius: 14px; background-color: #EAF2FF; flex-direction: row; align-items: center; justify-content: center; }
+.detail-refresh-icon { margin-right: 3px; color: #1677F2; font-size: 14px; font-weight: 800; }
+.detail-refresh-text { color: #1677F2; font-size: 11px; font-weight: 800; }
+.refreshing { opacity: 0.62; }
+.chart-time { color: #8C929D; font-size: 13px; }
+.chart-title { color: #8C929D; font-size: 13px; }
+.chart-change { margin-left: 4px; font-size: 13px; font-weight: 800; }
+.chart-shell { margin-top: 6px; position: relative; }
+.chart-plot { position: relative; overflow: hidden; border-radius: 4px; background: linear-gradient(180deg, #FFFFFF 0%, #FBFCFF 100%); }
+.chart-gradient { position: absolute; border-radius: 4px; }
+.grid-line { position: absolute; left: 0; right: 0; height: 1px; background-color: #EEF0F3; }
+.grid-top { top: 20px; }
+.grid-mid { top: 50%; }
+.grid-bottom { bottom: 24px; }
+.zero-line { position: absolute; left: 0; right: 0; height: 1px; border-top: 1px dotted #C8CDD5; }
+.middle-line { position: absolute; top: 20px; bottom: 24px; width: 1px; border-left: 1px dotted #D2D6DE; }
+.line-segment { position: absolute; height: 2px; border-radius: 2px; transform-origin: 0 50%; }
+.trade-marker { position: absolute; z-index: 4; box-sizing: border-box; width: 10px; height: 10px; border: 2px solid #FFFFFF; border-radius: 5px; box-shadow: 0 1px 4px rgba(15,23,42,0.22); }
+.trade-marker-buy { background-color: #F59E0B; }
+.trade-marker-sell { background-color: #1677F2; }
+.active-line { position: absolute; top: 20px; bottom: 24px; width: 1px; border-left: 1px dotted #9CA3AF; }
+.active-bubble { position: absolute; width: 44px; height: 22px; line-height: 22px; border-radius: 5px; background-color: #20284A; color: #FFFFFF; font-size: 12px; text-align: center; }
+.axis-y { position: absolute; left: 0; color: #8C929D; font-size: 11px; background-color: rgba(255,255,255,0.82); }
+.axis-top { top: 1px; }
+.axis-bottom { bottom: 24px; }
+.axis-x { height: 24px; flex-direction: row; align-items: center; justify-content: space-between; }
+.axis-x-text { color: #747B86; font-size: 12px; }
+.trade-legend { height: 22px; flex-direction: row; align-items: center; justify-content: flex-end; }
+.trade-legend-item { margin-left: 12px; flex-direction: row; align-items: center; }
+.trade-legend-dot { width: 7px; height: 7px; border-radius: 4px; }
+.trade-legend-text { margin-left: 4px; color: #8A93A3; font-size: 9px; }
+.barrage-layer { position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 12; overflow: hidden; pointer-events: none; }
+.barrage-panel { margin-top: 8px; padding-top: 8px; border-top: 1px solid #EDF2F7; background-color: transparent; }
+.barrage-head { min-height: 26px; flex-direction: row; align-items: center; justify-content: space-between; }
+.barrage-title { color: #1F2937; font-size: 13px; font-weight: 800; }
+.barrage-note { display: block; margin-top: 2px; color: #8A93A3; font-size: 9px; }
+.barrage-toggle { height: 26px; padding: 0 10px; border-radius: 13px; background-color: #EAF2FF; align-items: center; justify-content: center; }
+.barrage-toggle-off { background-color: #EEF0F3; }
+.barrage-toggle-text { color: #1677F2; font-size: 10px; font-weight: 800; }
+.barrage-state-text { display: block; margin-top: 2px; color: #9AA3B2; font-size: 9px; }
+.barrage-item { position: absolute; z-index: 13; height: 23px; padding: 0 10px; border-radius: 12px; background-color: #DDF0FF; border: 1px solid rgba(111, 183, 255, 0.66); box-shadow: 0 3px 8px rgba(22, 119, 242, 0.16); flex-direction: row; align-items: center; justify-content: center; animation-name: barrageSlide; animation-timing-function: linear; animation-iteration-count: 1; animation-fill-mode: forwards; }
+.barrage-text { height: 22px; line-height: 22px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.barrage-color-row { height: 28px; margin-top: 5px; flex-direction: row; align-items: center; }
+.barrage-color-dot { width: 19px; height: 19px; margin-right: 8px; border-radius: 10px; border: 2px solid #FFFFFF; box-shadow: 0 2px 6px rgba(15,23,42,0.12); }
+.barrage-color-active { border-color: #B9D7FF; transform: scale(1.12); }
+.barrage-input-row { height: 38px; margin-top: 3px; flex-direction: row; align-items: center; }
+.barrage-input { flex: 1; height: 36px; padding: 0 10px; border-radius: 18px; background-color: #FFFFFF; color: #1F2937; font-size: 12px; }
+.barrage-send { width: 70px; height: 36px; margin-left: 8px; border-radius: 18px; background-color: #1677F2; align-items: center; justify-content: center; }
+.barrage-send-disabled { opacity: 0.58; }
+.barrage-send-text { color: #FFFFFF; font-size: 12px; font-weight: 800; }
+@keyframes barrageSlide {
+  from { transform: translateX(0); }
+  to { transform: translateX(820px); }
+}
+.range-tabs { margin-top: 7px; height: 34px; flex-direction: row; align-items: center; background-color: #F5F7FA; border-radius: 6px; }
+.range-tab { flex: 1; height: 28px; margin: 3px; align-items: center; justify-content: center; border-radius: 5px; }
+.active-range { background-color: #FFFFFF; }
+.range-label { color: #747B86; font-size: 12px; }
+.active-range-text { color: #1677F2; font-weight: 800; }
+.detail-actions { margin: 10px 12px 0; padding: 7px; border-radius: 10px; background-color: #FFFFFF; flex-direction: row; align-items: center; }
+.detail-action { flex: 1; height: 52px; margin: 0 3px; border-radius: 8px; background-color: #F5F7FA; align-items: center; justify-content: center; }
+.primary-action { background-color: #EAF2FF; }
+.disabled-action { opacity: 0.46; }
+.action-symbol { height: 21px; line-height: 21px; color: #526176; font-size: 20px; font-weight: 800; }
+.action-label { margin-top: 2px; color: #526176; font-size: 11px; font-weight: 800; }
+.primary-label { color: #1677F2; }
+.delete-symbol,
+.delete-label { color: #D94252; }
+.alert-symbol { width: 18px; height: 18px; line-height: 18px; border-radius: 9px; background-color: #FFF4E5; color: #B54708; font-size: 12px; text-align: center; }
+.popup-mask { position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 100; background-color: rgba(20,26,36,0.48); }
+.popup-panel { position: absolute; left: 12px; right: 12px; bottom: 14px; padding: 14px; border-radius: 12px; background-color: #FFFFFF; }
+.alert-panel { max-height: 88%; overflow: hidden; }
+.popup-head { min-height: 38px; flex-direction: row; align-items: center; justify-content: space-between; }
+.popup-title { color: #1F2937; font-size: 17px; font-weight: 800; }
+.popup-sub { display: block; margin-top: 4px; color: #8A93A3; font-size: 10px; }
+.popup-close { width: 56px; height: 30px; line-height: 30px; border-radius: 15px; background-color: #EAF2FF; color: #1677F2; font-size: 12px; }
+.form-grid { margin-top: 12px; flex-direction: row; flex-wrap: wrap; }
+.field-block { width: 48%; margin-right: 4%; margin-bottom: 9px; }
+.field-block:nth-child(2n) { margin-right: 0; }
+.field-block-full { width: 100%; margin-right: 0; }
+.field-label { color: #667085; font-size: 11px; }
+.field-input { margin-top: 4px; height: 36px; padding: 0 10px; border-radius: 7px; background-color: #F4F6FA; color: #1F2937; font-size: 13px; }
+.field-tip { color: #8A93A3; font-size: 10px; line-height: 15px; }
+.submit-button { margin-top: 10px; height: 42px; line-height: 42px; border-radius: 8px; background-color: #1677F2; color: #FFFFFF; font-size: 14px; font-weight: 800; }
+.alert-scroll { height: 55vh; margin-top: 10px; }
+.alert-quote { padding: 12px; border-radius: 9px; background: linear-gradient(135deg, #EAF5FF 0%, #F3F8FF 100%); flex-direction: row; align-items: center; justify-content: space-between; }
+.alert-quote-main { flex: 1; }
+.alert-quote-label { color: #667085; font-size: 10px; }
+.alert-quote-value { display: block; margin-top: 4px; color: #1F2937; font-size: 22px; font-weight: 800; }
+.alert-quote-side { align-items: flex-end; }
+.alert-quote-time { color: #8A93A3; font-size: 10px; }
+.alert-quote-change { display: block; margin-top: 5px; font-size: 17px; font-weight: 800; }
+.alert-section { margin-top: 10px; padding: 11px; border-radius: 9px; background-color: #F8FAFD; }
+.alert-section-head { height: 26px; flex-direction: row; align-items: center; justify-content: space-between; }
+.alert-section-title { color: #1F2937; font-size: 13px; font-weight: 800; }
+.alert-section-note { color: #98A2B3; font-size: 9px; }
+.alert-rule { min-height: 54px; border-bottom: 1px solid #E9EDF3; flex-direction: row; align-items: center; justify-content: space-between; }
+.alert-rule-main { flex: 1; padding-right: 8px; flex-direction: row; align-items: center; justify-content: space-between; }
+.alert-rule-label { flex: 1; color: #526176; font-size: 12px; font-weight: 700; }
+.alert-input-shell { width: 132px; height: 34px; padding: 0 8px; border-radius: 7px; background-color: #EDF1F6; flex-direction: row; align-items: center; }
+.alert-input-active { background-color: #FFFFFF; border: 1px solid #B9D7FF; }
+.alert-input { flex: 1; height: 32px; color: #1F2937; font-size: 12px; }
+.alert-input-unit { margin-left: 4px; color: #8A93A3; font-size: 9px; }
+.rule-switch { width: 42px; height: 24px; padding: 2px; border-radius: 12px; background-color: #CBD2DC; align-items: flex-start; justify-content: center; }
+.rule-switch-on { background-color: #1677F2; }
+.rule-switch-knob { width: 20px; height: 20px; border-radius: 10px; background-color: #FFFFFF; }
+.rule-switch-knob-on { align-self: flex-end; }
+.remind-row { min-height: 56px; border-bottom: 1px solid #E9EDF3; flex-direction: row; align-items: center; }
+.radio-ring { width: 18px; height: 18px; border-radius: 9px; border: 2px solid #C5CDD8; align-items: center; justify-content: center; }
+.radio-ring-active { border-color: #1677F2; }
+.radio-core { width: 8px; height: 8px; border-radius: 4px; background-color: #1677F2; }
+.remind-copy { flex: 1; margin-left: 9px; }
+.remind-label { color: #526176; font-size: 12px; font-weight: 800; }
+.remind-note { display: block; margin-top: 3px; color: #98A2B3; font-size: 9px; }
+.custom-time { height: 30px; padding: 0 9px; border-radius: 6px; background-color: #EAF2FF; align-items: center; justify-content: center; }
+.custom-time-text { color: #1677F2; font-size: 11px; font-weight: 800; }
+.empty-mask { position: absolute; left: 0; right: 0; top: 0; bottom: 24px; align-items: center; justify-content: center; background-color: rgba(255,255,255,0.86); }
+.empty-text { color: #9BA1AA; font-size: 12px; }
+.up { color: #D94252; }
+.down { color: #18A875; }
+.flat { color: #737B86; }
+.dark-page { background-color: #0B1220; }
+.dark-page .hero { background: linear-gradient(135deg, #0F3A74 0%, #0E2B5C 82%); }
+.dark-page .stat-card,
+.dark-page .chart-card,
+.dark-page .detail-actions,
+.dark-page .popup-panel { background-color: #1F2937; }
+.dark-page .chart-plot { background: linear-gradient(180deg, #1F2937 0%, #192332 100%); }
+.dark-page .grid-line { background-color: #374151; }
+.dark-page .axis-y { background-color: rgba(31,41,55,0.82); }
+.dark-page .trade-marker { border-color: #1F2937; }
+.dark-page .detail-action,
+.dark-page .field-input,
+.dark-page .alert-section { background-color: #111827; }
+.dark-page .barrage-panel { border-color: #2D3748; }
+.dark-page .barrage-title,
+.dark-page .barrage-input { color: #F9FAFB; }
+.dark-page .barrage-input { background-color: #0B1220; }
+.dark-page .barrage-item { background-color: #DDF0FF; border-color: rgba(147, 197, 253, 0.78); }
+.dark-page .primary-action,
+.dark-page .popup-close,
+.dark-page .custom-time { background-color: #0F274A; }
+.dark-page .alert-quote { background: linear-gradient(135deg, #102B4E 0%, #14243B 100%); }
+.dark-page .popup-title,
+.dark-page .alert-quote-value,
+.dark-page .alert-section-title,
+.dark-page .stat-value { color: #F9FAFB; }
+.dark-page .field-label,
+.dark-page .popup-sub,
+.dark-page .field-tip,
+.dark-page .alert-rule-label,
+.dark-page .remind-label { color: #A7B0BE; }
+.dark-page .alert-rule,
+.dark-page .remind-row { border-color: #374151; }
+.dark-page .alert-input-shell { background-color: #1F2937; }
+.dark-page .alert-input-active { border-color: #2F5F98; }
+.dark-page .alert-input { color: #F9FAFB; }
+</style>
+
+
