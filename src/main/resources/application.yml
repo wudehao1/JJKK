@@ -29,10 +29,10 @@ logging:
 jjkk:
   auth:
     token-ttl-days: ${JJKK_AUTH_TOKEN_TTL_DAYS:7}
-    allow-dev-login: ${JJKK_AUTH_ALLOW_DEV_LOGIN:false}
+    allow-dev-login: ${JJKK_AUTH_ALLOW_DEV_LOGIN:true}
   wechat:
-    app-id: ${JJKK_WECHAT_APP_ID:}
-    app-secret: ${JJKK_WECHAT_APP_SECRET:}
+    app-id: ${JJKK_WECHAT_c:wxf562510ee716d0c3}
+    app-secret: ${JJKK_WECHAT_APP_SECRET:1d698c88f79f2638b28ebf1e80c27b3b}
   official:
     csrc:
       product-index-page-url: ${JJKK_CSRC_PRODUCT_INDEX_PAGE_URL:https://www.csrc.gov.cn/csrc/c101900/c1029655/content.shtml}

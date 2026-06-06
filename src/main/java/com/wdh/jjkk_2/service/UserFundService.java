@@ -25,8 +25,11 @@ import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.List;
@@ -34,9 +37,10 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 鐢ㄦ埛璧勬枡銆佽嚜閫夊熀閲戝拰鏃х増鎸佹湁鏁版嵁鐨勪笟鍔℃湇鍔°€? *
- * Controller 宸茬粡瀹屾垚 token 鏍￠獙鍜岀敤鎴烽殧绂伙紝鏈湇鍔″彧璐熻矗鏁版嵁搴撹鍐欍€侀噸澶嶆暟鎹鐞嗐€? * 鑷€夋帓搴忋€佽祫鏂欐洿鏂帮紝浠ュ強鎶婅嚜閫夊熀閲戣ˉ鍏呬笂鏈€鏂板畼鏂瑰噣鍊煎拰浼扮畻蹇収銆傝繖鏍锋潈闄愯竟鐣屽拰
- * 涓氬姟鎸佷箙鍖栬竟鐣屽垎寮€锛屽悗缁敼鐧诲綍鏂瑰紡鎴栨敼鑷€夊睍绀洪兘涓嶄細浜掔浉鐗佃繛銆? */
+ * 用户资料、自选基金和模拟持有交易业务服务。
+ *
+ * Controller 负责 token 校验与用户隔离，本服务负责数据读写、排序、交易和行情补全。
+ */
 @Service
 public class UserFundService {
     private static final Logger log = LoggerFactory.getLogger(UserFundService.class);
@@ -47,7 +51,10 @@ public class UserFundService {
     private static final int MAX_TRADE_LIMIT = 200;
     private static final String TRADE_STATUS_EXECUTED = "EXECUTED";
     private static final String TRADE_STATUS_PENDING = "PENDING";
-    private static final String DEFAULT_ACCOUNT_NAME = "姒涙顓荤拹锔藉煕";
+    private static final ZoneId CN_MARKET_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final LocalTime CN_MARKET_OPEN = LocalTime.of(9, 30);
+    private static final LocalTime CN_MARKET_CLOSE = LocalTime.of(15, 0);
+    private static final String DEFAULT_ACCOUNT_NAME = "默认账户";
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final FundQuoteRefreshService fundQuoteRefreshService;
@@ -171,9 +178,8 @@ public class UserFundService {
     }
 
     /**
-     * 杩斿洖鐢ㄦ埛鑷€夊熀閲戝垪琛紝骞跺叧鑱旀渶鏂板噣鍊煎拰浼扮畻蹇収銆?     *
-     * SQL 涓€娆℃€ф煡鍑鸿嚜閫夊叧绯汇€佸熀閲戝悕绉般€佸畼鏂瑰噣鍊兼棩鏈熴€佸畼鏂规棩娑ㄥ箙銆佷及绠楀噣鍊笺€?     * 浼扮畻娑ㄥ箙鍜屾暟鎹姸鎬併€傚墠绔嚜閫夐〉鍙互鐩存帴娓叉煋锛岄伩鍏嶆瘡鍙熀閲戝啀鍗曠嫭璇锋眰璇︽儏閫犳垚
-     * N+1 鎺ュ彛璋冪敤銆?     */
+     * 返回自选基金列表，并一次性关联基金名称、最新官方净值和估算快照。
+     */
     public List<UserDtos.WatchlistItemResponse> listWatchlist(Long userId) {
         assertUserExists(userId);
         return jdbcTemplate.query("""
@@ -213,8 +219,8 @@ public class UserFundService {
 
     @Transactional
     /**
-     * 鏂板鎴栨洿鏂颁竴鏉¤嚜閫夊熀閲戣褰曘€?     *
-     * 濡傛灉鐢ㄦ埛閲嶅娣诲姞鍚屼竴鍙熀閲戯紝浼氭洿鏂板垎缁勩€佸娉ㄣ€佹帓搴忓拰鎻愰啋寮€鍏筹紝鑰屼笉鏄彃鍏ラ噸澶嶈銆?     * 鍐欏叆鎴愬姛鍚庝細灏濊瘯绔嬪嵆鍒锋柊涓€娆′及绠楀揩鐓э紝璁╁垰鍔犲叆鑷€夌殑鍩洪噾灏藉揩鏈夊睍绀烘暟鎹€?     */
+     * 新增或更新一条自选基金记录，成功后尝试立即刷新估算快照。
+     */
     public UserDtos.WatchlistItemResponse addWatchlist(Long userId, UserDtos.WatchlistRequest request) {
         assertUserExists(userId);
         ensureFundExistsForTrade(request.fundCode());
@@ -237,7 +243,7 @@ public class UserFundService {
         try {
             fundQuoteRefreshService.refreshFundEstimate(request.fundCode());
         } catch (Exception ignored) {
-            // 濡傛灉鍏紑琛屾儏婧愮煭鏆傝秴鏃讹紝涓嶅奖鍝嶅姞鍏ヨ嚜閫夛紱涓嬩竴杞垎閽熻皟搴︿細缁х画灏濊瘯琛ラ綈浼扮畻鏁版嵁銆?        }
+            // 行情源短暂超时不影响加入自选，后续调度会继续补齐估算数据。
         }
         return getWatchlistItem(userId, request.fundCode());
     }
@@ -301,13 +307,15 @@ public class UserFundService {
     }
 
     /**
-     * 鏌ヨ鎸佹湁鏄庣粏锛堥粯璁ゅ叏閮ㄨ处鎴枫€侀粯璁ゆ帓搴忥級銆?     */
+     * 查询全部账户的持有明细。
+     */
     public List<UserDtos.HoldingResponse> listHoldings(Long userId) {
         return listHoldings(userId, null, null, null, null);
     }
 
     /**
-     * 鏌ヨ鎸佹湁鏄庣粏锛堟敮鎸佽处鎴风瓫閫夈€佸熀閲戠瓫閫夈€佸墠绔帓搴忥級銆?     * 鎺掑簭鍦ㄥ唴瀛樻墽琛岋紝閬垮厤涓嶅悓鏁版嵁搴撶増鏈笂琛ㄨ揪寮忔帓搴忓吋瀹归棶棰樸€?     */
+     * 查询持有明细，支持账户、基金筛选和前端指定排序。
+     */
     public List<UserDtos.HoldingResponse> listHoldings(
             Long userId,
             String fundCode,
@@ -339,7 +347,8 @@ public class UserFundService {
     }
 
     /**
-     * 鏌ヨ璐︽埛绾ф寔鏈夋眹鎬伙紝渚涘墠绔处鎴风瓫閫夊櫒灞曠ず銆?     */
+     * 查询账户级持有汇总，供前端账户筛选器展示。
+     */
     public List<UserDtos.HoldingAccountSummaryResponse> listHoldingAccountSummary(Long userId) {
         assertUserExists(userId);
         return jdbcTemplate.query("""
@@ -390,8 +399,8 @@ public class UserFundService {
     }
 
     /**
-     * 鎸佹湁椤佃仛鍚堢湅鏉匡細
-     * 涓€娆¤繑鍥?summary + accounts + holdings + transactions锛屽噺灏戝墠绔娆″苟鍙戣姹傘€?     */
+     * 一次返回 summary、accounts、holdings 和 transactions，减少前端并发请求。
+     */
     public UserDtos.HoldingDashboardResponse holdingDashboard(
             Long userId,
             Long accountId,
@@ -486,13 +495,15 @@ public class UserFundService {
     }
 
     /**
-     * 鎸佹湁鏉垮潡姹囨€讳俊鎭€?     * 姹囨€诲彛寰勬寜褰撳墠鏈夋晥鎸佷粨锛圓CTIVE/CLEARED锛夎绠楋紝浣跨敤浼扮畻鍑€鍊煎緱鍒板疄鏃跺競鍊间笌娴泩浜忋€?     */
+     * 持有板块汇总信息，仅按当前有效持仓计算实时市值与浮动盈亏。
+     */
     public UserDtos.HoldingSummaryResponse holdingSummary(Long userId) {
         return buildHoldingSummaryFromList(listHoldings(userId));
     }
 
     /**
-     * 鏌ヨ妯℃嫙浜ゆ槗娴佹按锛屾敮鎸佹寜鍩洪噾涓庤处鎴疯繃婊ゃ€?     */
+     * 查询模拟交易流水，支持按基金与账户过滤。
+     */
     public List<UserDtos.HoldingTransactionResponse> listHoldingTransactions(Long userId, String fundCode, Long accountId, Integer limit) {
         assertUserExists(userId);
         int safeLimit = limit == null ? DEFAULT_TRADE_LIMIT : Math.max(1, Math.min(limit, MAX_TRADE_LIMIT));
@@ -707,9 +718,8 @@ public class UserFundService {
     }
 
     /**
-     * 妯℃嫙浜ゆ槗涔板叆/鍗栧嚭銆?     * 姣忔璋冪敤閮戒細锛?     * 1) 璁＄畻鎴愪氦閲戦涓庝唤棰濓紱
-     * 2) 鍥炲啓 user_fund_holding 鐨勬渶鏂版寔浠擄紱
-     * 3) 杩藉姞涓€鏉?user_holding_txn 鎴愪氦娴佹按銆?     */
+     * 模拟买入或卖出，成交后更新持仓并追加交易流水。
+     */
     @Transactional
     public UserDtos.HoldingTradeResponse simulateTrade(Long userId, UserDtos.HoldingTradeRequest request) {
         assertUserExists(userId);
@@ -717,7 +727,7 @@ public class UserFundService {
 
         String txnType = normalizeTradeTxnType(request.txnType());
         BigDecimal fee = nonNegative(request.fee(), "fee");
-        LocalDate txnDate = request.txnDate() == null ? LocalDate.now() : request.txnDate();
+        LocalDate txnDate = request.txnDate() == null ? LocalDate.now(CN_MARKET_ZONE) : request.txnDate();
         LocalDate confirmDate = request.confirmDate() == null ? txnDate : request.confirmDate();
         Long accountId = resolveTradeAccountId(userId, request.accountId(), request.accountName(), request.platformName());
         String navOption = normalizeNavOption(request.navOption());
@@ -737,6 +747,52 @@ public class UserFundService {
                     confirmDate,
                     trimToNull(request.remark()),
                     "USER_INPUT"
+            );
+        }
+
+        if ("BUY".equals(txnType) && !StringUtils.hasText(request.navOption())) {
+            LocalDate targetDate = resolveAutoBuyTargetNavDate(txnDate);
+            String autoNavOption = targetDate.equals(txnDate) ? "TODAY" : "TOMORROW";
+            OfficialNav officialNav = findOfficialNavOnOrAfter(request.fundCode(), targetDate);
+            if (officialNav == null) {
+                Long pendingId = createPendingTrade(
+                        userId,
+                        accountId,
+                        request.fundCode(),
+                        txnType,
+                        txnDate,
+                        confirmDate,
+                        targetDate,
+                        autoNavOption,
+                        request.amount(),
+                        request.share(),
+                        fee,
+                        trimToNull(request.remark())
+                );
+                return new UserDtos.HoldingTradeResponse(
+                        null,
+                        null,
+                        null,
+                        null,
+                        TRADE_STATUS_PENDING,
+                        "官方净值未更新，已进入待成交队列",
+                        pendingId,
+                        targetDate
+                );
+            }
+            return executeTradeWithResolvedNav(
+                    userId,
+                    request.fundCode(),
+                    txnType,
+                    accountId,
+                    request.amount(),
+                    request.share(),
+                    normalizeNav(officialNav.unitNav()),
+                    fee,
+                    txnDate,
+                    officialNav.navDate(),
+                    trimToNull(request.remark()),
+                    "IMPORT"
             );
         }
 
@@ -1001,6 +1057,36 @@ public class UserFundService {
         );
     }
 
+    private LocalDate resolveAutoBuyTargetNavDate(LocalDate txnDate) {
+        LocalDate marketToday = LocalDate.now(CN_MARKET_ZONE);
+        LocalDate safeTxnDate = txnDate == null ? marketToday : txnDate;
+        if (!safeTxnDate.equals(marketToday)) {
+            return nextTradingDay(safeTxnDate);
+        }
+        if (!isTradingDay(safeTxnDate)) {
+            return nextTradingDay(safeTxnDate);
+        }
+        return isWithinCnTradeSessionOrLunchBreak() ? safeTxnDate : nextTradingDay(safeTxnDate);
+    }
+
+    private boolean isWithinCnTradeSessionOrLunchBreak() {
+        LocalTime now = LocalTime.now(CN_MARKET_ZONE);
+        return !now.isBefore(CN_MARKET_OPEN) && now.isBefore(CN_MARKET_CLOSE);
+    }
+
+    private boolean isTradingDay(LocalDate date) {
+        DayOfWeek dayOfWeek = date.getDayOfWeek();
+        return dayOfWeek != DayOfWeek.SATURDAY && dayOfWeek != DayOfWeek.SUNDAY;
+    }
+
+    private LocalDate nextTradingDay(LocalDate date) {
+        LocalDate next = date;
+        do {
+            next = next.plusDays(1);
+        } while (!isTradingDay(next));
+        return next;
+    }
+
     private String normalizeNavOption(String value) {
         if (!StringUtils.hasText(value)) {
             return "TODAY";
@@ -1204,7 +1290,7 @@ public class UserFundService {
                 .addValue("accountName", name)
                 .addValue("platformName", trimToNull(platformName))
                 .addValue("isDefault", DEFAULT_ACCOUNT_NAME.equals(name)), keyHolder);
-        return extractGeneratedId(keyHolder, "鎸佹湁璐︽埛");
+        return extractGeneratedId(keyHolder, "持有账户");
     }
 
     private void assertUserExists(Long userId) {
@@ -1225,7 +1311,9 @@ public class UserFundService {
     }
 
     /**
-     * 鎸佹湁/浜ゆ槗鍏ュ彛鍏佽鐩存帴杈撳叆浠绘剰鍩洪噾浠ｇ爜锛?     * 1) 鏈湴宸插瓨鍦ㄥ垯鐩存帴閫氳繃锛?     * 2) 鏈湴涓嶅瓨鍦ㄦ椂锛屽厛璧颁竴娆″畼鏂规悳绱㈠鍏ワ紙鎸夊熀閲戜唬鐮佺簿纭悳绱級锛?     * 3) 瀵煎叆鍚庝粛涓嶅瓨鍦ㄦ墠杩斿洖 404銆?     */
+     * 持有与交易入口允许直接输入基金代码。本地不存在时先按代码从官方数据源导入，
+     * 导入后仍不存在才返回 404，避免基金代码和名称错配。
+     */
     private void ensureFundExistsForTrade(String fundCode) {
         String normalizedFundCode = trimToNull(fundCode);
         if (!StringUtils.hasText(normalizedFundCode)) {
@@ -1522,7 +1610,7 @@ public class UserFundService {
                 .addValue("fee", fee)
                 .addValue("sourceType", sourceType)
                 .addValue("remark", remark), keyHolder);
-        return extractGeneratedId(keyHolder, "浜ゆ槗娴佹按");
+        return extractGeneratedId(keyHolder, "交易流水");
     }
 
     private String normalizeTradeTxnType(String value) {
@@ -1544,7 +1632,8 @@ public class UserFundService {
     }
 
     /**
-     * 鏍规嵁鎸佹湁鍒楄〃鏋勫缓鎬昏姹囨€伙紝淇濊瘉鐪嬫澘鎺ュ彛涓庡崟鐙?summary 鎺ュ彛鍙ｅ緞涓€鑷淬€?     */
+     * 根据持有列表构建总览汇总，保证看板和独立汇总接口口径一致。
+     */
     private UserDtos.HoldingSummaryResponse buildHoldingSummaryFromList(List<UserDtos.HoldingResponse> holdings) {
         BigDecimal totalCostAmount = BigDecimal.ZERO;
         BigDecimal totalMarketValue = BigDecimal.ZERO;
@@ -1579,7 +1668,8 @@ public class UserFundService {
     }
 
     /**
-     * 鎸佹湁鎺掑簭锛氶粯璁?updated 闄嶅簭锛涙敮鎸?pnlPct/pnlAmount/marketValue/costAmount銆?     */
+     * 持有排序：默认按更新时间降序，也支持盈亏率、盈亏额、市值和成本排序。
+     */
     private void sortHoldingsInMemory(List<UserDtos.HoldingResponse> holdings, String sortBy, String sortDirection) {
         if (holdings == null || holdings.isEmpty()) {
             return;
@@ -1642,14 +1732,15 @@ public class UserFundService {
     }
 
     /**
-     * 鍏煎涓嶅悓 JDBC 椹卞姩杩斿洖鐨勪富閿被鍨嬶紙Long / Integer / BigInteger 绛夛級銆?     */
+     * 兼容不同 JDBC 驱动返回的主键类型（Long / Integer / BigInteger 等）。
+     */
     private Long extractGeneratedId(KeyHolder keyHolder, String entityName) {
         if (keyHolder == null) {
-            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, entityName + "鍒涘缓澶辫触");
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, entityName + "创建失败");
         }
         List<Map<String, Object>> keyList = keyHolder.getKeyList();
         if (keyList == null || keyList.isEmpty()) {
-            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, entityName + "鍒涘缓澶辫触");
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, entityName + "创建失败");
         }
         Map<String, Object> firstRow = keyList.get(0);
         Object value = (firstRow == null || firstRow.isEmpty()) ? null : firstRow.values().iterator().next();
@@ -1663,7 +1754,7 @@ public class UserFundService {
                 // fallback to throw business exception below
             }
         }
-        throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, entityName + "鍒涘缓澶辫触");
+        throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, entityName + "创建失败");
     }
 
     private BigDecimal ratioPct(BigDecimal numerator, BigDecimal denominator) {

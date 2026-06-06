@@ -149,6 +149,9 @@ public class AuthService {
             return new WechatIdentity(code.substring(4), null);
         }
         if (!StringUtils.hasText(wechatAppId) || !StringUtils.hasText(wechatAppSecret)) {
+            if (allowDevLogin) {
+                return new WechatIdentity("dev-wechat-openid", null);
+            }
             throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "\u5fae\u4fe1\u914d\u7f6e\u7f3a\u5c11 appId/appSecret");
         }
         try {

@@ -1263,14 +1263,14 @@ public class FundQuoteRefreshService {
 
     private boolean isEtfLinked(FundProfile profile) {
         String name = (profile.fundName() + " " + profile.fundShortName()).toUpperCase();
-        return name.contains("ETF") && name.contains("鑱旀帴");
+        return name.contains("ETF") && name.contains("联接");
     }
 
     private boolean isIndexProxy(FundProfile profile) {
         String name = (profile.fundName() + " " + profile.fundShortName()).toUpperCase();
         return Boolean.TRUE.equals(profile.indexFund())
                 || (profile.trackingIndexCode() != null && !profile.trackingIndexCode().isBlank())
-                || name.contains("鎸囨暟");
+                || name.contains("指数");
     }
 
     private String inferBenchmarkProxyCode(FundProfile profile) {
@@ -1358,11 +1358,11 @@ public class FundQuoteRefreshService {
         String name = firstNonBlank(profile.fundName(), profile.fundShortName());
         String company = normalizeCompanyName(profile.companyName());
         String base = name
-                .replaceAll("(?i)ETF鑱旀帴.*$", "ETF")
-                .replaceAll("鑱旀帴.*$", "")
+                .replaceAll("(?i)ETF联接.*$", "ETF")
+                .replaceAll("联接.*$", "")
                 .replaceAll("[A-Z]$", "")
-                .replace("鍩洪噾", "")
-                .replace("鎸囨暟", "")
+                .replace("基金", "")
+                .replace("指数", "")
                 .trim();
         if (!base.isBlank()) {
             keywords.add(base);
@@ -1375,7 +1375,7 @@ public class FundQuoteRefreshService {
                 keywords.add(withoutCompany + "ETF" + company);
             }
         }
-        String theme = base.replace("涓瘉", "").replace(company, "").replace("ETF", "").trim();
+        String theme = base.replace("中证", "").replace(company, "").replace("ETF", "").trim();
         if (!theme.isBlank()) {
             keywords.add(theme + "ETF" + company);
             keywords.add(company + theme + "ETF");
@@ -1392,7 +1392,7 @@ public class FundQuoteRefreshService {
             for (JsonNode item : datas) {
                 String code = normalizeSecurityCode(item.path("CODE").asText(null));
                 String name = item.path("NAME").asText("");
-                if (code == null || code.equals(sourceFundCode) || !name.toUpperCase().contains("ETF") || name.contains("鑱旀帴")) {
+                if (code == null || code.equals(sourceFundCode) || !name.toUpperCase().contains("ETF") || name.contains("联接")) {
                     continue;
                 }
                 String tencentCode = tencentStockCode(null, code);
@@ -1417,7 +1417,7 @@ public class FundQuoteRefreshService {
         if (value == null) {
             return "";
         }
-        return value.replace("鍩洪噾", "").replace("绠＄悊", "").trim();
+        return value.replace("基金", "").replace("管理", "").trim();
     }
 
     private boolean isFresh(CacheEntry<?> entry, Duration ttl) {

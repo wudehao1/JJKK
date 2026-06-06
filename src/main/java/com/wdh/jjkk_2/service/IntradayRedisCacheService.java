@@ -177,6 +177,13 @@ public class IntradayRedisCacheService {
         );
     }
 
+    public void clearMarketMinutePoints(String symbol, LocalDate tradingDay) {
+        if (symbol == null || tradingDay == null) {
+            return;
+        }
+        redisWrite(() -> redisTemplate.delete(marketMinuteKey(tradingDay, symbol)));
+    }
+
     /**
      * 把某个交易日 Redis 中的全部分钟点持久化到 MySQL。
      *

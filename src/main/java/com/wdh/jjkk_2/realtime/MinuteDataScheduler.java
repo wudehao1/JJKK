@@ -28,6 +28,7 @@ import java.time.ZoneId;
 public class MinuteDataScheduler {
     private static final Logger log = LoggerFactory.getLogger(MinuteDataScheduler.class);
     private static final ZoneId CHINA_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final ZoneId US_EASTERN_ZONE = ZoneId.of("America/New_York");
 
     private final MarketService marketService;
     private final FundQuoteRefreshService fundQuoteRefreshService;
@@ -191,8 +192,13 @@ public class MinuteDataScheduler {
                 && !time.isBefore(LocalTime.of(9, 30))
                 && !time.isAfter(LocalTime.of(16, 10));
 
-        boolean usSession = ((dayOfWeek != DayOfWeek.SATURDAY && dayOfWeek != DayOfWeek.SUNDAY) && !time.isBefore(LocalTime.of(20, 0)))
-                || (dayOfWeek != DayOfWeek.SUNDAY && dayOfWeek != DayOfWeek.MONDAY && !time.isAfter(LocalTime.of(5, 0)));
+        LocalDate usToday = LocalDate.now(US_EASTERN_ZONE);
+        LocalTime usTime = LocalTime.now(US_EASTERN_ZONE);
+        DayOfWeek usDayOfWeek = usToday.getDayOfWeek();
+        boolean usWeekday = usDayOfWeek != DayOfWeek.SATURDAY && usDayOfWeek != DayOfWeek.SUNDAY;
+        boolean usSession = usWeekday
+                && !usTime.isBefore(LocalTime.of(9, 25))
+                && !usTime.isAfter(LocalTime.of(16, 10));
 
         boolean goldDaySession = weekday
                 && ((!time.isBefore(LocalTime.of(9, 0)) && !time.isAfter(LocalTime.of(11, 30)))

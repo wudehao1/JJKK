@@ -428,8 +428,8 @@ public class FundService {
                 .addValue("fundName", trimToNull(request.fundName()))
                 .addValue("fundShortName", trimToNull(request.fundShortName()))
                 .addValue("shareClassCode", trimToNull(request.shareClassCode()))
-                .addValue("purchaseStatus", nullableEnum(request.purchaseStatus(), TRADE_STATUS, "鐢宠喘鐘舵€佷笉鍚堟硶"))
-                .addValue("redeemStatus", nullableEnum(request.redeemStatus(), TRADE_STATUS, "璧庡洖鐘舵€佷笉鍚堟硶")));
+                .addValue("purchaseStatus", nullableEnum(request.purchaseStatus(), TRADE_STATUS, "申购状态不合法"))
+                .addValue("redeemStatus", nullableEnum(request.redeemStatus(), TRADE_STATUS, "赎回状态不合法")));
 
         return findByCode(fundCode);
     }

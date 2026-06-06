@@ -1,7 +1,9 @@
 package com.wdh.jjkk_2.controller;
 
 import com.wdh.jjkk_2.dto.FundDtos;
+import com.wdh.jjkk_2.dto.BulletCommentDtos;
 import com.wdh.jjkk_2.dto.OfficialFundDtos;
+import com.wdh.jjkk_2.service.FundBulletCommentService;
 import com.wdh.jjkk_2.service.FundService;
 import com.wdh.jjkk_2.service.OfficialFundImportService;
 
@@ -14,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,10 +37,16 @@ import org.springframework.validation.annotation.Validated;
 public class FundController {
     private final FundService fundService;
     private final OfficialFundImportService officialFundImportService;
+    private final FundBulletCommentService fundBulletCommentService;
 
-    public FundController(FundService fundService, OfficialFundImportService officialFundImportService) {
+    public FundController(
+            FundService fundService,
+            OfficialFundImportService officialFundImportService,
+            FundBulletCommentService fundBulletCommentService
+    ) {
         this.fundService = fundService;
         this.officialFundImportService = officialFundImportService;
+        this.fundBulletCommentService = fundBulletCommentService;
     }
 
     /**
@@ -102,6 +111,21 @@ public class FundController {
             @RequestParam(defaultValue = "1m") String range
     ) {
         return ApiResponse.ok(fundService.historySeries(fundCode, range));
+    }
+
+    @GetMapping("/{fundCode}/bullet-comments")
+    public ApiResponse<BulletCommentDtos.ListResponse> bulletComments(
+            @PathVariable @Pattern(regexp = "\\d{6}", message = "\u57fa\u91d1\u4ee3\u7801\u5fc5\u987b\u662f6\u4f4d\u6570\u5b57") String fundCode
+    ) {
+        return ApiResponse.ok(fundBulletCommentService.list(fundCode));
+    }
+
+    @PostMapping("/{fundCode}/bullet-comments")
+    public ApiResponse<BulletCommentDtos.ListResponse> sendBulletComment(
+            @PathVariable @Pattern(regexp = "\\d{6}", message = "\u57fa\u91d1\u4ee3\u7801\u5fc5\u987b\u662f6\u4f4d\u6570\u5b57") String fundCode,
+            @Valid @RequestBody BulletCommentDtos.SendRequest request
+    ) {
+        return ApiResponse.ok("弹幕已发送", fundBulletCommentService.send(fundCode, request));
     }
 
     @PutMapping("/{fundCode}")

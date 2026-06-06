@@ -63,8 +63,8 @@ public class MarketService {
             new DefaultIndex("美股", "NYSE", "DJIA", "道琼斯", null, "100.DJIA"),
             new DefaultIndex("美股", "NYSE", "SPX", "标普500", null, "100.SPX"),
             new DefaultIndex("美股", "NASDAQ", "NDX100", "纳斯达克100", null, "100.NDX100"),
-            new DefaultIndex("黄金", "SHFE", "AUM", "沪金主连", null, "113.aum"),
-            new DefaultIndex("黄金", "OTHER", "XAU", "伦敦金现", null, "122.XAU"),
+            new DefaultIndex("黄金", "OTHER", "GC", "纽约黄金", null, null),
+            new DefaultIndex("黄金", "OTHER", "AU9999", "上金Au99.99", null, null),
             new DefaultIndex("黄金", "FX", "UDI", "美元指数", null, "100.UDI")
     ).stream()
             .filter(index -> !"UDI".equals(index.symbol()))
@@ -93,13 +93,27 @@ public class MarketService {
     private static final String SINA_US_DAILY_URL = "https://stock.finance.sina.com.cn/usstock/api/jsonp.php/var%20d=/US_MinKService.getDailyK";
     private static final String SINA_FUTURES_DAILY_URL = "https://stock2.finance.sina.com.cn/futures/api/json.php/IndexService.getInnerFuturesDailyKLine";
     private static final String SINA_FUTURES_MINUTE_URL = "https://stock2.finance.sina.com.cn/futures/api/json.php/IndexService.getInnerFuturesMiniKLine5m";
+    private static final String SINA_GLOBAL_FUTURES_DAILY_URL = "https://stock2.finance.sina.com.cn/futures/api/json.php/GlobalFuturesService.getGlobalFuturesDailyKLine";
+    private static final String SINA_GLOBAL_FUTURES_MINUTE_URL = "https://stock2.finance.sina.com.cn/futures/api/json.php/GlobalFuturesService.getGlobalFuturesMinLine";
     private static final String EASTMONEY_FUTURES_API_URL = "https://futsseapi.eastmoney.com/";
     private static final String EASTMONEY_FUTURES_TOKEN = "1101ffec61617c99be287c1bec3085ff";
     private static final String EASTMONEY_FUTURES_FIELDS = "name,dm,sc,p,zsjd,zdf,o,h,l,vol,cje,zde,zjsj,tjd,utime,uid,zf,zt,dt";
     private static final String SHFE_DAILY_KX_URL = "https://www.shfe.cn/data/tradedata/future/dailydata/kx%s.dat";
+    private static final String SGE_DELAYED_QUOTE_URL = "https://www.sge.com.cn/sjzx/yshqbg";
+    private static final String SGE_DAILY_QUOTE_URL = "https://www.sge.com.cn/sjzx/quotation_daily_new?start_date=%s&end_date=%s&inst_ids=Au99.99";
     private static final String YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+    private static final Pattern SGE_REPORT_DATE_PATTERN = Pattern.compile("(\\d{4})年(\\d{2})月(\\d{2})日");
+    private static final Pattern SGE_DELAYED_AU9999_PATTERN = Pattern.compile(
+            "Au99\\.99\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)\\s+(-?\\d+(?:\\.\\d+)?)"
+    );
+    private static final Pattern SGE_DAILY_AU9999_PATTERN = Pattern.compile(
+            "(\\d{4}-\\d{2}-\\d{2})\\s+Au99\\.99\\s+(-?[\\d,]+(?:\\.\\d+)?|--?)\\s+(-?[\\d,]+(?:\\.\\d+)?|--?)\\s+(-?[\\d,]+(?:\\.\\d+)?|--?)\\s+(-?[\\d,]+(?:\\.\\d+)?|--?)\\s+(-?[\\d,]+(?:\\.\\d+)?|--?)\\s+(-?[\\d,]+(?:\\.\\d+)?|--?)%?\\s+(-?[\\d,]+(?:\\.\\d+)?|--?)\\s+(-?[\\d,]+(?:\\.\\d+)?|--?)\\s+(-?[\\d,]+(?:\\.\\d+)?|--?)"
+    );
+    // The official page is limited to 20 rows. A 20-calendar-day Au99.99-only chunk stays below that limit.
+    private static final int SGE_DAILY_CHUNK_DAYS = 20;
     private static final Duration FUND_RANK_CACHE_TTL = Duration.ofMinutes(3);
     private static final ZoneId CHINA_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final ZoneId US_EASTERN_ZONE = ZoneId.of("America/New_York");
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -134,15 +148,18 @@ public class MarketService {
      * quote DTO，前端可以显示“暂无数据”，但六宫格/多市场布局不会因为缺一项而整体错位。
      */
     public MarketDtos.OverviewResponse overview() {
-        List<MarketDtos.IndexQuoteResponse> liveQuotes = mergeDefaultQuotes(
-                fetchEastmoneyIndexQuotes(),
-                mergeDefaultQuotes(fetchEastmoneyFutureQuotes(), mergeDefaultQuotes(fetchSinaIndexQuotes(), fetchTencentIndexQuotes()))
-        );
+        List<MarketDtos.IndexQuoteResponse> liveQuotes = enrichOverviewQuotes(mergeDefaultQuotes(
+                fetchOfficialGoldQuotes(),
+                mergeDefaultQuotes(
+                        fetchEastmoneyIndexQuotes(),
+                        mergeDefaultQuotes(fetchEastmoneyFutureQuotes(), mergeDefaultQuotes(fetchSinaIndexQuotes(), fetchTencentIndexQuotes()))
+                )
+        ));
         if (hasAnyQuote(liveQuotes)) {
             return overviewFromQuotes(liveQuotes);
         }
 
-        List<MarketDtos.IndexQuoteResponse> quotes = mergeDefaultQuotes(loadStoredIndexQuotes(), List.of());
+        List<MarketDtos.IndexQuoteResponse> quotes = enrichOverviewQuotes(mergeDefaultQuotes(loadStoredIndexQuotes(), List.of()));
         if (!hasAnyQuote(quotes)) {
             return new MarketDtos.OverviewResponse(null, LocalDateTime.now(CHINA_ZONE), "NO_DATA", quotes);
         }
@@ -151,6 +168,97 @@ public class MarketService {
         LocalDateTime updatedAt = latestQuoteTime();
         String status = isCurrentTradingData(quotes) ? "NORMAL" : "STALE";
         return new MarketDtos.OverviewResponse(tradingDay, updatedAt, status, quotes);
+    }
+
+    private List<MarketDtos.IndexQuoteResponse> enrichOverviewQuotes(List<MarketDtos.IndexQuoteResponse> quotes) {
+        if (quotes == null || quotes.isEmpty()) {
+            return List.of();
+        }
+        List<MarketDtos.IndexQuoteResponse> enriched = new ArrayList<>();
+        for (MarketDtos.IndexQuoteResponse quote : quotes) {
+            DefaultIndex index = defaultIndex(quote.symbol());
+            MarketDtos.MinutePointResponse minutePoint = shouldCheckMinuteQuoteForOverview(index)
+                    ? latestMinutePointForOverview(index)
+                    : null;
+            enriched.add(shouldUseMinuteQuoteForOverview(index, quote, minutePoint)
+                    ? overviewQuoteFromMinute(quote, minutePoint)
+                    : quote);
+        }
+        return sortDefaultIndices(enriched);
+    }
+
+    private boolean shouldCheckMinuteQuoteForOverview(DefaultIndex index) {
+        return index != null && !isOfficialGoldMarket(index);
+    }
+
+    private boolean shouldUseMinuteQuoteForOverview(DefaultIndex index,
+                                                    MarketDtos.IndexQuoteResponse quote,
+                                                    MarketDtos.MinutePointResponse minutePoint) {
+        if (index == null || quote == null || minutePoint == null || minutePoint.price() == null) {
+            return false;
+        }
+        if (isFutureQuoteTime(quote.quoteTime())) {
+            return true;
+        }
+        if (quote.quoteTime() == null || (minutePoint.quoteTime() != null && minutePoint.quoteTime().isAfter(quote.quoteTime()))) {
+            return true;
+        }
+        if (minutePoint.changePct() == null) {
+            return false;
+        }
+        BigDecimal quotePct = quote.changePct();
+        BigDecimal minutePct = minutePoint.changePct();
+        boolean quoteLooksFlat = quotePct == null || quotePct.abs().compareTo(BigDecimal.valueOf(0.01)) < 0;
+        boolean minuteHasSignal = minutePct.abs().compareTo(BigDecimal.valueOf(0.01)) >= 0;
+        return quoteLooksFlat && minuteHasSignal;
+    }
+
+    private MarketDtos.IndexQuoteResponse overviewQuoteFromMinute(MarketDtos.IndexQuoteResponse quote,
+                                                                  MarketDtos.MinutePointResponse minutePoint) {
+        BigDecimal changeAmount = changeAmountFromPct(minutePoint.price(), minutePoint.changePct());
+        return new MarketDtos.IndexQuoteResponse(
+                quote.market(),
+                quote.symbol(),
+                quote.name(),
+                minutePoint.price(),
+                changeAmount,
+                minutePoint.changePct(),
+                quote.turnover(),
+                dataLagSeconds(minutePoint.quoteTime()),
+                minutePoint.quoteTime()
+        );
+    }
+
+    private BigDecimal changeAmountFromPct(BigDecimal price, BigDecimal changePct) {
+        if (price == null || changePct == null) {
+            return null;
+        }
+        BigDecimal denominator = BigDecimal.valueOf(100).add(changePct);
+        if (BigDecimal.ZERO.compareTo(denominator) == 0) {
+            return null;
+        }
+        BigDecimal previous = price.multiply(BigDecimal.valueOf(100)).divide(denominator, 6, RoundingMode.HALF_UP);
+        return price.subtract(previous);
+    }
+
+    private MarketDtos.MinutePointResponse latestMinutePointForOverview(DefaultIndex index) {
+        if (index == null) {
+            return null;
+        }
+        List<InstrumentRef> instruments = findIndexInstruments(index.symbol());
+        if (instruments.isEmpty()) {
+            return null;
+        }
+        long instrumentId = instruments.get(0).id();
+        LocalDate expectedDay = expectedTradingDay(LocalDateTime.now(CHINA_ZONE), index);
+        List<MarketDtos.MinutePointResponse> points = loadMinutePoints(instrumentId, expectedDay, index);
+        if (points.isEmpty()) {
+            LocalDate tradingDay = latestMinuteTradingDayOnOrBefore(instrumentId, expectedDay);
+            if (tradingDay != null) {
+                points = loadMinutePoints(instrumentId, tradingDay, index);
+            }
+        }
+        return points.isEmpty() ? null : points.get(points.size() - 1);
     }
 
     private MarketDtos.OverviewResponse overviewFromQuotes(List<MarketDtos.IndexQuoteResponse> quotes) {
@@ -362,6 +470,9 @@ public class MarketService {
      */
     public MarketDtos.MinuteSeriesResponse minuteSeries(String symbol) {
         DefaultIndex fallback = defaultIndex(symbol);
+        if (fallback != null && isOfficialGoldMarket(fallback)) {
+            return officialGoldMinuteSeries(fallback);
+        }
         if (fallback != null) {
             refreshIndexIntraday(symbol);
         } else {
@@ -379,7 +490,15 @@ public class MarketService {
         if (instruments.isEmpty()) {
             String name = fallback == null ? symbol : fallback.name();
             String market = fallback == null ? "INDEX" : fallback.market();
-            return new MarketDtos.MinuteSeriesResponse(market, symbol, name, null, LocalDateTime.now(CHINA_ZONE), "NO_DATA", List.of());
+            return new MarketDtos.MinuteSeriesResponse(
+                    market,
+                    symbol,
+                    name,
+                    null,
+                    marketDisplayTime(fallback, LocalDateTime.now(CHINA_ZONE)),
+                    "NO_DATA",
+                    List.of()
+            );
         }
 
         InstrumentRef instrument = instruments.get(0);
@@ -391,39 +510,38 @@ public class MarketService {
                     instrument.symbol(),
                     instrument.name(),
                     expectedDay,
-                    now,
+                    marketDisplayTime(fallback, now),
                     "NO_DATA",
                     List.of()
             );
         }
 
         LocalDate tradingDay = expectedDay;
-        boolean useChinaMinuteWindow = fallback == null || isChinaMarket(fallback);
-        List<MarketDtos.MinutePointResponse> points = loadMinutePoints(instrument.id(), tradingDay, useChinaMinuteWindow);
-        if (points.isEmpty()) {
-            points = intradayRedisCacheService.loadMarketMinutePoints(symbol, tradingDay);
+        List<MarketDtos.MinutePointResponse> points = loadMinutePoints(instrument.id(), tradingDay, fallback);
+        if (points.isEmpty() && !isHkMarket(fallback)) {
+            points = sanitizeMinutePoints(intradayRedisCacheService.loadMarketMinutePoints(symbol, tradingDay), fallback, tradingDay);
         }
         if (points.isEmpty() && !isPreOpenClearWindow(now, fallback)) {
             fetchTencentIndexQuotes();
             fetchSinaIndexQuotes();
-            points = loadMinutePoints(instrument.id(), tradingDay, useChinaMinuteWindow);
-            if (points.isEmpty()) {
-                points = intradayRedisCacheService.loadMarketMinutePoints(symbol, tradingDay);
+            points = loadMinutePoints(instrument.id(), tradingDay, fallback);
+            if (points.isEmpty() && !isHkMarket(fallback)) {
+                points = sanitizeMinutePoints(intradayRedisCacheService.loadMarketMinutePoints(symbol, tradingDay), fallback, tradingDay);
             }
         }
 
         if (points.isEmpty()) {
-            LocalDate fallbackTradingDay = latestMinuteTradingDay(instrument.id());
-            if (fallbackTradingDay != null && !fallbackTradingDay.isAfter(expectedDay)) {
+            LocalDate fallbackTradingDay = latestMinuteTradingDayOnOrBefore(instrument.id(), expectedDay);
+            if (fallbackTradingDay != null) {
                 tradingDay = fallbackTradingDay;
-                points = loadMinutePoints(instrument.id(), tradingDay, useChinaMinuteWindow);
+                points = loadMinutePoints(instrument.id(), tradingDay, fallback);
             }
         }
 
         if (points.isEmpty()) {
             points = loadLatestQuotePoint(instrument.id());
             if (!points.isEmpty() && points.get(0).quoteTime() != null) {
-                tradingDay = points.get(0).quoteTime().toLocalDate();
+                tradingDay = marketTradingDay(fallback, points.get(0).quoteTime());
             }
         }
 
@@ -433,14 +551,14 @@ public class MarketService {
                     instrument.symbol(),
                     instrument.name(),
                     expectedDay,
-                    now,
+                    marketDisplayTime(fallback, now),
                     "NO_DATA",
                     List.of()
             );
         }
 
         LocalDateTime updatedAt = points.get(points.size() - 1).quoteTime();
-        String dataStatus = tradingDay.equals(expectedDay) ? "NORMAL" : "STALE";
+        String dataStatus = minuteDataStatus(fallback, tradingDay, expectedDay, updatedAt, now);
         MarketDtos.MinuteSeriesResponse response = new MarketDtos.MinuteSeriesResponse(
                 instrument.market(),
                 instrument.symbol(),
@@ -451,7 +569,52 @@ public class MarketService {
                 points
         );
         intradayRedisCacheService.cacheMarketMinuteResponse(response);
-        return response;
+        return marketDisplayMinuteResponse(fallback, response);
+    }
+
+    private String minuteDataStatus(DefaultIndex index,
+                                    LocalDate tradingDay,
+                                    LocalDate expectedDay,
+                                    LocalDateTime updatedAt,
+                                    LocalDateTime now) {
+        if (tradingDay == null || expectedDay == null || !tradingDay.equals(expectedDay)) {
+            return "STALE";
+        }
+        if (isUsMarket(index) && updatedAt != null) {
+            LocalDateTime sessionStart = usSessionStartInChina(tradingDay);
+            LocalDateTime sessionEnd = usSessionEndInChina(tradingDay);
+            LocalDateTime expectedLatest = now.isBefore(sessionEnd) ? now : sessionEnd;
+            if (expectedLatest.isAfter(sessionStart)
+                    && updatedAt.isBefore(expectedLatest.minusMinutes(15))) {
+                return "STALE";
+            }
+        }
+        return "NORMAL";
+    }
+
+    private MarketDtos.MinuteSeriesResponse marketDisplayMinuteResponse(DefaultIndex index,
+                                                                         MarketDtos.MinuteSeriesResponse response) {
+        if (!isUsMarket(index) || response == null) {
+            return response;
+        }
+        List<MarketDtos.MinutePointResponse> displayPoints = response.points().stream()
+                .map(point -> new MarketDtos.MinutePointResponse(
+                        marketDisplayTime(index, point.quoteTime()),
+                        point.price(),
+                        point.changePct(),
+                        point.volume(),
+                        point.turnover()
+                ))
+                .toList();
+        return new MarketDtos.MinuteSeriesResponse(
+                response.market(),
+                response.symbol(),
+                response.name(),
+                response.tradingDay(),
+                marketDisplayTime(index, response.updatedAt()),
+                response.dataStatus(),
+                displayPoints
+        );
     }
 
     /**
@@ -465,9 +628,32 @@ public class MarketService {
         DefaultIndex fallback = defaultIndex(symbol);
         String market = fallback == null ? "INDEX" : fallback.market();
         String name = fallback == null ? symbol : fallback.name();
-        List<MarketDtos.HistoryPointResponse> points = fallback != null && "AUM".equals(fallback.symbol())
-                ? fetchShfeGoldMainDailyKline(symbol, dateRange.startDate(), dateRange.endDate())
-                : fetchEastmoneyKline(symbol, dateRange.startDate(), dateRange.endDate());
+        List<MarketDtos.HistoryPointResponse> points;
+        if (fallback != null && isGlobalGoldMarket(fallback)) {
+            points = fetchSinaGlobalFutureDailyKline(symbol, dateRange.startDate(), dateRange.endDate());
+        } else if (fallback != null && "AU9999".equals(fallback.symbol())) {
+            points = fetchSgeSpotGoldDailyKline(symbol, dateRange.startDate(), dateRange.endDate());
+        } else {
+            points = fetchEastmoneyKline(symbol, dateRange.startDate(), dateRange.endDate());
+        }
+        if (fallback != null && isOfficialGoldMarket(fallback)) {
+            points = mergeHistoryPoints(
+                    loadStoredDailyHistory(symbol, dateRange.startDate(), dateRange.endDate()),
+                    points
+            );
+            points = sanitizeHistoryPoints(fallback, points);
+            return new MarketDtos.HistorySeriesResponse(
+                    market,
+                    symbol,
+                    name,
+                    dateRange.range(),
+                    dateRange.startDate(),
+                    dateRange.endDate(),
+                    LocalDateTime.now(CHINA_ZONE),
+                    historyDataStatus(fallback, points, dateRange),
+                    points
+            );
+        }
         if (points.isEmpty() || shouldReplaceWithHistoryFallback(fallback, points, dateRange.endDate())) {
             List<MarketDtos.HistoryPointResponse> tencentPoints = fetchTencentKline(symbol, dateRange.startDate(), dateRange.endDate());
             if (!tencentPoints.isEmpty()) {
@@ -492,6 +678,7 @@ public class MarketService {
         if (points.isEmpty()) {
             points = loadStoredDailyHistory(symbol, dateRange.startDate(), dateRange.endDate());
         }
+        points = sanitizeHistoryPoints(fallback, points);
         return new MarketDtos.HistorySeriesResponse(
                 market,
                 symbol,
@@ -503,6 +690,50 @@ public class MarketService {
                 historyDataStatus(fallback, points, dateRange),
                 points
         );
+    }
+
+    private List<MarketDtos.HistoryPointResponse> mergeHistoryPoints(
+            List<MarketDtos.HistoryPointResponse> fallbackPoints,
+            List<MarketDtos.HistoryPointResponse> preferredPoints
+    ) {
+        Map<LocalDate, MarketDtos.HistoryPointResponse> byDate = new LinkedHashMap<>();
+        if (fallbackPoints != null) {
+            for (MarketDtos.HistoryPointResponse point : fallbackPoints) {
+                if (point != null && point.tradingDay() != null) {
+                    byDate.put(point.tradingDay(), point);
+                }
+            }
+        }
+        if (preferredPoints != null) {
+            for (MarketDtos.HistoryPointResponse point : preferredPoints) {
+                if (point != null && point.tradingDay() != null) {
+                    byDate.put(point.tradingDay(), point);
+                }
+            }
+        }
+        return byDate.values().stream()
+                .sorted((left, right) -> left.tradingDay().compareTo(right.tradingDay()))
+                .toList();
+    }
+
+    private List<MarketDtos.HistoryPointResponse> sanitizeHistoryPoints(DefaultIndex index,
+                                                                         List<MarketDtos.HistoryPointResponse> points) {
+        if (points == null || points.isEmpty() || index == null) {
+            return points == null ? List.of() : points;
+        }
+        LocalDateTime now = LocalDateTime.now(CHINA_ZONE);
+        LocalDate maxCompletedDay = expectedTradingDay(now, index);
+        if (isHkMarket(index)
+                && maxCompletedDay.equals(now.toLocalDate())
+                && now.toLocalTime().isBefore(LocalTime.of(16, 0))) {
+            maxCompletedDay = previousWeekday(now.toLocalDate().minusDays(1));
+        }
+        LocalDate finalMaxCompletedDay = maxCompletedDay;
+        return points.stream()
+                .filter(point -> point != null && point.tradingDay() != null)
+                .filter(point -> !point.tradingDay().isAfter(finalMaxCompletedDay))
+                .sorted((left, right) -> left.tradingDay().compareTo(right.tradingDay()))
+                .toList();
     }
 
     /**
@@ -532,7 +763,7 @@ public class MarketService {
     }
 
     public void clearUsPreOpenMinuteData() {
-        LocalDate tradingDay = expectedTradingDay(LocalDateTime.now(CHINA_ZONE), defaultIndex("DJIA"));
+        LocalDate tradingDay = usLocalTime(LocalDateTime.now(CHINA_ZONE)).toLocalDate();
         jdbcTemplate.update("""
                 DELETE mq
                 FROM market_quote_minute mq
@@ -553,6 +784,14 @@ public class MarketService {
         if (fallback == null) {
             return;
         }
+        if (isOfficialGoldMarket(fallback)) {
+            refreshOfficialGoldQuote(fallback);
+            return;
+        }
+        if (isGlobalGoldMarket(fallback)) {
+            refreshSinaGlobalFutureIntraday(fallback);
+            return;
+        }
         try {
             int sourceId = ensureEastmoneyIndexDataSource();
             JsonNode data = objectMapper.readTree(fetchUtf8Text(eastmoneyTrendUrl(fallback))).path("data");
@@ -567,38 +806,70 @@ public class MarketService {
                 return;
             }
             InstrumentRef instrument = upsertInstrument(fallback.market(), fallback.symbol(), data.path("name").asText(fallback.name()), sourceId);
-            int saved = 0;
+            List<EastmoneyTrendPoint> validPoints = new ArrayList<>();
             for (JsonNode item : trends) {
                 String[] fields = item.asText("").split(",", -1);
                 if (fields.length < 7) {
                     continue;
                 }
-                LocalDateTime quoteTime = parseDateTime(fields[0]);
+                LocalDateTime quoteTime = normalizeEastmoneyTrendTime(fallback, parseDateTime(fields[0]));
                 BigDecimal openPrice = decimal(fields[1]);
                 BigDecimal closePrice = decimal(fields[2]);
                 BigDecimal highPrice = decimal(fields[3]);
                 BigDecimal lowPrice = decimal(fields[4]);
                 BigDecimal volume = decimal(fields[5]);
                 BigDecimal turnover = decimal(fields[6]);
-                BigDecimal changePct = ratioPct(closePrice, preClose);
-                upsertMinuteQuote(
-                        instrument.id(),
+                LocalDate pointTradingDay = marketTradingDay(fallback, quoteTime);
+                if (closePrice == null
+                        || isFutureQuoteTime(quoteTime)
+                        || !belongsToMinuteSession(fallback, pointTradingDay, quoteTime)) {
+                    continue;
+                }
+                validPoints.add(new EastmoneyTrendPoint(
+                        pointTradingDay,
                         quoteTime,
                         openPrice,
                         highPrice,
                         lowPrice,
                         closePrice,
-                        preClose,
-                        changePct,
+                        ratioPct(closePrice, preClose),
                         volume,
-                        turnover,
+                        turnover
+                ));
+            }
+            if (validPoints.isEmpty()) {
+                refreshFallbackIndexQuotes(fallback);
+                return;
+            }
+
+            LocalDate expectedDay = expectedTradingDay(LocalDateTime.now(CHINA_ZONE), fallback);
+            LocalDateTime latestExpectedQuoteTime = validPoints.stream()
+                    .filter(point -> expectedDay.equals(point.tradingDay()))
+                    .map(EastmoneyTrendPoint::quoteTime)
+                    .max(LocalDateTime::compareTo)
+                    .orElse(null);
+            if (isHkMarket(fallback) && latestExpectedQuoteTime != null) {
+                cleanHkMinuteQuotes(instrument.id(), fallback.symbol(), expectedDay, latestExpectedQuoteTime, sourceId);
+            }
+
+            for (EastmoneyTrendPoint point : validPoints) {
+                upsertMinuteQuote(
+                        instrument.id(),
+                        point.tradingDay(),
+                        point.quoteTime(),
+                        point.openPrice(),
+                        point.highPrice(),
+                        point.lowPrice(),
+                        point.closePrice(),
+                        preClose,
+                        point.changePct(),
+                        point.volume(),
+                        point.turnover(),
                         sourceId
                 );
-                saved += 1;
             }
-            if (saved == 0) {
-                refreshFallbackIndexQuotes(fallback);
-            } else if (!isChinaMarket(fallback) && saved < 30) {
+            int saved = validPoints.size();
+            if (!isChinaMarket(fallback) && !isHkMarket(fallback) && saved < 30) {
                 refreshFallbackIndexQuotes(fallback);
             } else if (appendRealtimeQuote && isTradingTime(LocalDateTime.now(CHINA_ZONE))) {
                 fetchTencentIndexQuotes();
@@ -609,6 +880,32 @@ public class MarketService {
         }
     }
 
+    private void cleanHkMinuteQuotes(long instrumentId,
+                                     String symbol,
+                                     LocalDate tradingDay,
+                                     LocalDateTime latestValidQuoteTime,
+                                     int sourceId) {
+        jdbcTemplate.update("""
+                DELETE FROM market_quote_minute
+                WHERE instrument_id = :instrumentId
+                  AND trading_day = :tradingDay
+                  AND (
+                    source_id IS NULL
+                    OR source_id <> :sourceId
+                    OR quote_time > :latestValidQuoteTime
+                    OR NOT (
+                      TIME(quote_time) BETWEEN '09:30:00' AND '12:00:00'
+                      OR TIME(quote_time) BETWEEN '13:00:00' AND '16:00:00'
+                    )
+                  )
+                """, new MapSqlParameterSource()
+                .addValue("instrumentId", instrumentId)
+                .addValue("tradingDay", tradingDay)
+                .addValue("latestValidQuoteTime", latestValidQuoteTime)
+                .addValue("sourceId", sourceId));
+        intradayRedisCacheService.clearMarketMinutePoints(symbol, tradingDay);
+    }
+
     /**
      * 针对主数据源刷新不稳定品种的兜底链路。
      *
@@ -617,6 +914,15 @@ public class MarketService {
      * market_quote/minute 表和 Redis 缓存。
      */
     private void refreshFallbackIndexQuotes(DefaultIndex fallback) {
+        if (isOfficialGoldMarket(fallback)) {
+            refreshOfficialGoldQuote(fallback);
+            return;
+        }
+        if (isGlobalGoldMarket(fallback)) {
+            fetchSinaIndexQuotes();
+            refreshSinaGlobalFutureIntraday(fallback);
+            return;
+        }
         fetchEastmoneyIndexQuotes();
         fetchTencentIndexQuotes();
         fetchSinaIndexQuotes();
@@ -630,6 +936,371 @@ public class MarketService {
         if (saved == 0) {
             refreshYahooIndexIntraday(fallback);
         }
+    }
+
+    private List<MarketDtos.IndexQuoteResponse> fetchOfficialGoldQuotes() {
+        List<MarketDtos.IndexQuoteResponse> quotes = new ArrayList<>();
+        for (DefaultIndex index : DEFAULT_INDICES) {
+            if (!isOfficialGoldMarket(index)) {
+                continue;
+            }
+            MarketDtos.IndexQuoteResponse quote = refreshOfficialGoldQuote(index);
+            if (quote != null && isExpectedTradingDayQuote(index, quote.quoteTime())) {
+                quotes.add(quote);
+            }
+        }
+        return sortDefaultIndices(quotes);
+    }
+
+    private boolean isExpectedTradingDayQuote(DefaultIndex index, LocalDateTime quoteTime) {
+        if (index == null || quoteTime == null || isFutureQuoteTime(quoteTime)) {
+            return false;
+        }
+        LocalDate expectedDay = expectedTradingDay(LocalDateTime.now(CHINA_ZONE), index);
+        return expectedDay.equals(marketTradingDay(index, quoteTime));
+    }
+
+    private MarketDtos.MinuteSeriesResponse officialGoldMinuteSeries(DefaultIndex index) {
+        MarketDtos.IndexQuoteResponse quote = refreshOfficialGoldQuote(index);
+        if (quote == null) {
+            quote = loadLatestOfficialGoldQuote(index);
+        }
+        LocalDate expectedDay = expectedTradingDay(LocalDateTime.now(CHINA_ZONE), index);
+        if (quote == null || quote.lastPrice() == null || quote.quoteTime() == null) {
+            return new MarketDtos.MinuteSeriesResponse(
+                    index.market(),
+                    index.symbol(),
+                    index.name(),
+                    expectedDay,
+                    LocalDateTime.now(CHINA_ZONE),
+                    "NO_DATA",
+                    List.of()
+            );
+        }
+        LocalDate tradingDay = isSgeMarket(index) ? expectedDay : marketTradingDay(index, quote.quoteTime());
+        List<MarketDtos.MinutePointResponse> points = loadOfficialGoldMinutePoints(index, tradingDay);
+        if ("AUM".equals(index.symbol()) && !tradingDay.equals(expectedDay)) {
+            points = List.of();
+        } else if (points.isEmpty()) {
+            points = List.of(new MarketDtos.MinutePointResponse(
+                    quote.quoteTime(),
+                    quote.lastPrice(),
+                    quote.changePct(),
+                    null,
+                    quote.turnover()
+            ));
+        }
+        return new MarketDtos.MinuteSeriesResponse(
+                quote.market(),
+                quote.symbol(),
+                quote.name(),
+                tradingDay,
+                quote.quoteTime(),
+                tradingDay.equals(expectedDay) ? "NORMAL" : "STALE",
+                points
+        );
+    }
+
+    private MarketDtos.IndexQuoteResponse refreshOfficialGoldQuote(DefaultIndex index) {
+        OfficialGoldQuote quote = readOfficialGoldQuote(index);
+        if (quote == null) {
+            return loadLatestOfficialGoldQuote(index);
+        }
+        return persistOfficialGoldQuote(quote, officialGoldSourceId(index), officialGoldSourceUrl(index));
+    }
+
+    private OfficialGoldQuote readOfficialGoldQuote(DefaultIndex index) {
+        if (index == null) {
+            return null;
+        }
+        if ("AUM".equals(index.symbol())) {
+            return readShfeGoldOfficialQuote(index);
+        }
+        if ("AU9999".equals(index.symbol())) {
+            return readSgeSpotGoldOfficialQuote(index);
+        }
+        return null;
+    }
+
+    private OfficialGoldQuote readShfeGoldOfficialQuote(DefaultIndex index) {
+        LocalDate cursor = expectedTradingDay(LocalDateTime.now(CHINA_ZONE), index);
+        for (int i = 0; i < 10; i += 1) {
+            if (!isWeekend(cursor)) {
+                MarketDtos.HistoryPointResponse point = fetchShfeGoldMainDailyBar(cursor);
+                if (point != null) {
+                    return officialGoldQuoteFromDailyBar(index, point, cursor.atTime(15, 0));
+                }
+            }
+            cursor = previousWeekday(cursor.minusDays(1));
+        }
+        return null;
+    }
+
+    private OfficialGoldQuote readSgeSpotGoldOfficialQuote(DefaultIndex index) {
+        OfficialGoldQuote delayedQuote = fetchSgeSpotGoldDelayedQuote(index);
+        if (delayedQuote != null) {
+            return delayedQuote;
+        }
+        LocalDate cursor = expectedTradingDay(LocalDateTime.now(CHINA_ZONE), index);
+        for (int i = 0; i < 10; i += 1) {
+            if (!isWeekend(cursor)) {
+                MarketDtos.HistoryPointResponse point = fetchSgeSpotGoldDailyBar(cursor);
+                if (point != null) {
+                    return officialGoldQuoteFromDailyBar(index, point, cursor.atTime(15, 30));
+                }
+            }
+            cursor = previousWeekday(cursor.minusDays(1));
+        }
+        return null;
+    }
+
+    private OfficialGoldQuote officialGoldQuoteFromDailyBar(DefaultIndex index,
+                                                            MarketDtos.HistoryPointResponse point,
+                                                            LocalDateTime quoteTime) {
+        if (index == null || point == null || point.closePrice() == null || quoteTime == null) {
+            return null;
+        }
+        BigDecimal changeAmount = changeAmountFromPct(point.closePrice(), point.changePct());
+        BigDecimal previousClose = changeAmount == null ? null : point.closePrice().subtract(changeAmount);
+        return new OfficialGoldQuote(
+                index,
+                index.name(),
+                point.closePrice(),
+                previousClose,
+                point.openPrice(),
+                point.highPrice(),
+                point.lowPrice(),
+                changeAmount,
+                point.changePct(),
+                point.volume(),
+                point.turnover(),
+                point.tradingDay(),
+                quoteTime,
+                dataLagSeconds(quoteTime)
+        );
+    }
+
+    private OfficialGoldQuote fetchSgeSpotGoldDelayedQuote(DefaultIndex index) {
+        if (index == null || !"AU9999".equals(index.symbol())) {
+            return null;
+        }
+        try {
+            ensureSgeOfficialDataSource();
+            String text = normalizeHtmlText(fetchUtf8Text(SGE_DELAYED_QUOTE_URL));
+            Matcher row = SGE_DELAYED_AU9999_PATTERN.matcher(text);
+            if (!row.find()) {
+                return null;
+            }
+            BigDecimal lastPrice = decimal(row.group(1));
+            BigDecimal highPrice = decimal(row.group(2));
+            BigDecimal lowPrice = decimal(row.group(3));
+            BigDecimal openPrice = decimal(row.group(4));
+            if (lastPrice == null || lastPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                return null;
+            }
+            LocalDate tradingDay = parseSgeReportDate(text);
+            if (tradingDay == null) {
+                tradingDay = LocalDate.now(CHINA_ZONE);
+            }
+            MarketDtos.HistoryPointResponse previousBar = fetchSgeSpotGoldDailyBar(previousWeekday(tradingDay.minusDays(1)));
+            BigDecimal previousClose = previousBar == null ? null : previousBar.closePrice();
+            BigDecimal changeAmount = previousClose == null ? null : lastPrice.subtract(previousClose);
+            LocalDateTime now = LocalDateTime.now(CHINA_ZONE).truncatedTo(ChronoUnit.MINUTES);
+            LocalDateTime quoteTime = sgeDelayedQuoteTime(index, tradingDay, now);
+            if (quoteTime == null) {
+                return null;
+            }
+            return new OfficialGoldQuote(
+                    index,
+                    index.name(),
+                    lastPrice,
+                    previousClose,
+                    openPrice,
+                    highPrice,
+                    lowPrice,
+                    changeAmount,
+                    ratioPct(lastPrice, previousClose),
+                    null,
+                    null,
+                    tradingDay,
+                    quoteTime,
+                    dataLagSeconds(quoteTime)
+            );
+        } catch (Exception exception) {
+            return null;
+        }
+    }
+
+    private LocalDateTime sgeDelayedQuoteTime(DefaultIndex index, LocalDate tradingDay, LocalDateTime now) {
+        if (index == null || tradingDay == null || now == null) {
+            return null;
+        }
+        if (!tradingDay.equals(expectedTradingDay(now, index))) {
+            return tradingDay.atTime(15, 30);
+        }
+
+        LocalDateTime delayed = now.minusMinutes(15).truncatedTo(ChronoUnit.MINUTES);
+        if (belongsToMinuteSession(index, tradingDay, delayed)) {
+            return delayed;
+        }
+
+        LocalDateTime afternoonClose = tradingDay.atTime(15, 30);
+        LocalDateTime morningClose = tradingDay.atTime(11, 30);
+        LocalDateTime nightClose = tradingDay.atTime(2, 30);
+        if (!delayed.isBefore(afternoonClose)) {
+            return afternoonClose;
+        }
+        if (!delayed.isBefore(morningClose)) {
+            return morningClose;
+        }
+        if (!delayed.isBefore(nightClose)) {
+            return nightClose;
+        }
+        return null;
+    }
+
+    private MarketDtos.IndexQuoteResponse persistOfficialGoldQuote(OfficialGoldQuote quote, int sourceId, String sourceUrl) {
+        if (quote == null || quote.index() == null || quote.lastPrice() == null || quote.quoteTime() == null
+                || isFutureQuoteTime(quote.quoteTime())) {
+            return null;
+        }
+        DefaultIndex index = quote.index();
+        InstrumentRef instrument = upsertInstrument(
+                index.market(),
+                index.symbol(),
+                quote.name() == null || quote.name().isBlank() ? index.name() : quote.name(),
+                sourceId,
+                sourceUrl
+        );
+        upsertLatestQuote(
+                instrument.id(),
+                quote.quoteTime(),
+                quote.lastPrice(),
+                quote.prevClose(),
+                quote.openPrice(),
+                quote.highPrice(),
+                quote.lowPrice(),
+                quote.changeAmount(),
+                quote.changePct(),
+                quote.volume(),
+                quote.turnover(),
+                quote.dataLagSeconds(),
+                sourceId
+        );
+        upsertMinuteQuote(
+                instrument.id(),
+                quote.tradingDay() == null ? marketTradingDay(index, quote.quoteTime()) : quote.tradingDay(),
+                quote.quoteTime(),
+                quote.openPrice(),
+                quote.highPrice(),
+                quote.lowPrice(),
+                quote.lastPrice(),
+                quote.prevClose(),
+                quote.changePct(),
+                quote.volume(),
+                quote.turnover(),
+                sourceId
+        );
+        return new MarketDtos.IndexQuoteResponse(
+                index.market(),
+                index.symbol(),
+                quote.name() == null || quote.name().isBlank() ? index.name() : quote.name(),
+                quote.lastPrice(),
+                quote.changeAmount(),
+                quote.changePct(),
+                quote.turnover(),
+                quote.dataLagSeconds(),
+                quote.quoteTime()
+        );
+    }
+
+    private MarketDtos.IndexQuoteResponse loadLatestOfficialGoldQuote(DefaultIndex index) {
+        if (index == null) {
+            return null;
+        }
+        List<InstrumentRef> instruments = findIndexInstruments(index.symbol());
+        if (instruments.isEmpty()) {
+            return null;
+        }
+        List<MarketDtos.IndexQuoteResponse> rows = jdbcTemplate.query("""
+                SELECT mq.last_price,
+                       mq.change_amount,
+                       mq.change_pct,
+                       mq.turnover,
+                       mq.data_lag_seconds,
+                       mq.quote_time
+                FROM market_quote_latest mq
+                JOIN data_source ds ON ds.id = mq.source_id
+                WHERE mq.instrument_id = :instrumentId
+                  AND ds.source_code IN (:sourceCodes)
+                  AND mq.last_price IS NOT NULL
+                ORDER BY mq.quote_time DESC
+                LIMIT 1
+                """, new MapSqlParameterSource()
+                .addValue("instrumentId", instruments.get(0).id())
+                .addValue("sourceCodes", officialGoldSourceCodes(index)), (rs, rowNum) ->
+                new MarketDtos.IndexQuoteResponse(
+                        index.market(),
+                        index.symbol(),
+                        instruments.get(0).name(),
+                        rs.getBigDecimal("last_price"),
+                        rs.getBigDecimal("change_amount"),
+                        rs.getBigDecimal("change_pct"),
+                        rs.getBigDecimal("turnover"),
+                        rs.getObject("data_lag_seconds") == null ? null : rs.getInt("data_lag_seconds"),
+                        timestamp(rs.getTimestamp("quote_time"))
+                ));
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    private List<MarketDtos.MinutePointResponse> loadOfficialGoldMinutePoints(DefaultIndex index, LocalDate tradingDay) {
+        if (index == null || tradingDay == null) {
+            return List.of();
+        }
+        List<InstrumentRef> instruments = findIndexInstruments(index.symbol());
+        if (instruments.isEmpty()) {
+            return List.of();
+        }
+        List<MarketDtos.MinutePointResponse> points = jdbcTemplate.query("""
+                SELECT mq.quote_time,
+                       COALESCE(mq.close_price, mq.open_price) AS price,
+                       mq.change_pct,
+                       mq.volume,
+                       mq.turnover
+                FROM market_quote_minute mq
+                JOIN data_source ds ON ds.id = mq.source_id
+                WHERE mq.instrument_id = :instrumentId
+                  AND mq.trading_day = :tradingDay
+                  AND ds.source_code IN (:sourceCodes)
+                  AND COALESCE(mq.close_price, mq.open_price) IS NOT NULL
+                ORDER BY mq.quote_time
+                """, new MapSqlParameterSource()
+                .addValue("instrumentId", instruments.get(0).id())
+                .addValue("tradingDay", tradingDay)
+                .addValue("sourceCodes", officialGoldSourceCodes(index)), (rs, rowNum) ->
+                new MarketDtos.MinutePointResponse(
+                        timestamp(rs.getTimestamp("quote_time")),
+                        rs.getBigDecimal("price"),
+                        rs.getBigDecimal("change_pct"),
+                        rs.getBigDecimal("volume"),
+                        rs.getBigDecimal("turnover")
+                ));
+        return sanitizeMinutePoints(points, index, tradingDay);
+    }
+
+    private int officialGoldSourceId(DefaultIndex index) {
+        return "AUM".equals(index.symbol()) ? ensureShfeOfficialDataSource() : ensureSgeOfficialDataSource();
+    }
+
+    private String officialGoldSourceUrl(DefaultIndex index) {
+        return "AUM".equals(index.symbol()) ? "https://www.shfe.cn/data/tradedata/future/dailydata/" : SGE_DELAYED_QUOTE_URL;
+    }
+
+    private List<String> officialGoldSourceCodes(DefaultIndex index) {
+        if (index != null && "AUM".equals(index.symbol())) {
+            return List.of("SHFE_OFFICIAL_DAILY");
+        }
+        return List.of("SGE_OFFICIAL_DELAYED_15M");
     }
 
     private int refreshSinaIndexIntraday(DefaultIndex index) {
@@ -662,10 +1333,14 @@ public class MarketService {
                 if (quoteTime == null || price == null) {
                     continue;
                 }
+                LocalDateTime pointTime = tradingDay.atTime(quoteTime);
+                if (isFutureQuoteTime(pointTime) || !belongsToMinuteSession(index, tradingDay, pointTime)) {
+                    continue;
+                }
                 BigDecimal changePct = ratioPct(price, prevClose);
                 upsertMinuteQuote(
                         instrument.id(),
-                        tradingDay.atTime(quoteTime),
+                        pointTime,
                         null,
                         price,
                         price,
@@ -724,6 +1399,61 @@ public class MarketService {
                         prevClose,
                         ratioPct(closePrice, prevClose),
                         rowDecimal(row, "v", "volume", 5),
+                        null,
+                        sourceId
+                );
+                saved += 1;
+            }
+            return saved;
+        } catch (Exception exception) {
+            return 0;
+        }
+    }
+
+    private int refreshSinaGlobalFutureIntraday(DefaultIndex index) {
+        String globalSymbol = sinaGlobalFutureSymbol(index);
+        if (globalSymbol == null || globalSymbol.isBlank()) {
+            return 0;
+        }
+        try {
+            int sourceId = ensureSinaMarketDataSource();
+            SinaQuote latestQuote = fetchSinaQuote(index);
+            persistSinaQuote(latestQuote, sourceId);
+            String url = SINA_GLOBAL_FUTURES_MINUTE_URL + "?symbol=" + urlEncode(globalSymbol);
+            JsonNode rows = objectMapper.readTree(fetchSinaText(url, StandardCharsets.UTF_8)).path("minLine_1d");
+            if (!rows.isArray()) {
+                return 0;
+            }
+            BigDecimal prevClose = latestQuote == null ? null : latestQuote.prevClose();
+            String name = latestQuote == null || latestQuote.name() == null || latestQuote.name().isBlank()
+                    ? index.name()
+                    : latestQuote.name();
+            InstrumentRef instrument = upsertInstrument(index.market(), index.symbol(), name, sourceId, SINA_GLOBAL_FUTURES_MINUTE_URL);
+            int saved = 0;
+            for (JsonNode row : rows) {
+                if (!row.isArray() || row.size() < 2) {
+                    continue;
+                }
+                LocalDateTime quoteTime = parseSinaDateTime(row.get(row.size() - 1).asText(null));
+                BigDecimal closePrice = decimal(row.path(1).asText(null));
+                LocalDate tradingDay = marketTradingDay(index, quoteTime);
+                if (quoteTime == null
+                        || closePrice == null
+                        || isFutureQuoteTime(quoteTime)
+                        || !belongsToMinuteSession(index, tradingDay, quoteTime)) {
+                    continue;
+                }
+                upsertMinuteQuote(
+                        instrument.id(),
+                        tradingDay,
+                        quoteTime,
+                        null,
+                        null,
+                        null,
+                        closePrice,
+                        prevClose,
+                        ratioPct(closePrice, prevClose),
+                        null,
                         null,
                         sourceId
                 );
@@ -988,6 +1718,9 @@ public class MarketService {
                 BigDecimal turnover = decimal(item.path("f6").asText(null));
                 BigDecimal prevClose = decimal(item.path("f18").asText(null));
                 LocalDateTime quoteTime = eastmoneyQuoteTime(item.path("f124").asText(null));
+                if (lastPrice == null || quoteTime == null || isFutureQuoteTime(quoteTime)) {
+                    continue;
+                }
                 int dataLagSeconds = Math.max(0, (int) Duration.between(quoteTime, LocalDateTime.now(CHINA_ZONE)).getSeconds());
 
                 InstrumentRef instrument = upsertInstrument(market, symbol, name, sourceId);
@@ -1158,7 +1891,8 @@ public class MarketService {
     }
 
     private MarketDtos.IndexQuoteResponse persistSinaQuote(SinaQuote quote, int sourceId) {
-        if (quote == null || quote.index() == null || quote.lastPrice() == null || quote.quoteTime() == null) {
+        if (quote == null || quote.index() == null || quote.lastPrice() == null || quote.quoteTime() == null
+                || isFutureQuoteTime(quote.quoteTime())) {
             return null;
         }
         DefaultIndex index = quote.index();
@@ -1233,11 +1967,11 @@ public class MarketService {
         if ("NYSE".equals(index.market()) || "NASDAQ".equals(index.market()) || "AMEX".equals(index.market())) {
             return parseSinaUsQuote(index, fields);
         }
+        if (isGlobalGoldMarket(index)) {
+            return parseSinaSpotGoldQuote(index, fields);
+        }
         if ("AUM".equals(index.symbol())) {
             return parseSinaFutureGoldQuote(index, fields);
-        }
-        if ("XAU".equals(index.symbol())) {
-            return parseSinaSpotGoldQuote(index, fields);
         }
         return null;
     }
@@ -1314,13 +2048,13 @@ public class MarketService {
             return null;
         }
         BigDecimal lastPrice = firstDecimalField(fields, 0, 3);
-        BigDecimal prevClose = decimalField(fields, 1);
+        BigDecimal prevClose = firstDecimalField(fields, 8, 1);
         return new SinaQuote(
                 index,
                 textField(fields, 13, index.name()),
                 lastPrice,
                 prevClose,
-                decimalField(fields, 2),
+                firstDecimalField(fields, 7, 2),
                 decimalField(fields, 4),
                 decimalField(fields, 5),
                 lastPrice != null && prevClose != null ? lastPrice.subtract(prevClose) : null,
@@ -1589,8 +2323,8 @@ public class MarketService {
                     WHEN 'DJIA' THEN 10
                     WHEN 'SPX' THEN 11
                     WHEN 'NDX100' THEN 12
-                    WHEN 'AUM' THEN 13
-                    WHEN 'XAU' THEN 14
+                    WHEN 'GC' THEN 13
+                    WHEN 'AU9999' THEN 14
                     WHEN 'UDI' THEN 15
                     ELSE 99
                   END,
@@ -1633,7 +2367,7 @@ public class MarketService {
                 .addValue("market", market)
                 .addValue("symbol", symbol)
                 .addValue("name", name)
-                .addValue("currency", currencyForMarket(market))
+                .addValue("currency", currencyForMarket(market, symbol))
                 .addValue("sourceId", sourceId)
                 .addValue("sourceUrl", sourceUrl));
         return jdbcTemplate.queryForObject("""
@@ -1890,8 +2624,28 @@ public class MarketService {
                 INSERT INTO data_source (
                   source_code, source_name, source_type, trust_level, license_status, base_url, priority, enabled, remark
                 ) VALUES (
-                  'SHFE_OFFICIAL_DAILY', 'SHFE official daily data', 'THIRD_PARTY', 5, 'PUBLIC',
-                  'https://www.shfe.cn/', 20, 1, 'Official SHFE daily trading report for gold main contract history'
+                  'SHFE_OFFICIAL_DAILY', 'SHFE official daily data', 'EXCHANGE', 1, 'PUBLIC',
+                  'https://www.shfe.cn/', 20, 1, 'Official SHFE daily trading report for gold main contract history and close snapshot'
+                )
+                """, new MapSqlParameterSource(), keyHolder);
+        Number key = keyHolder.getKey();
+        return key == null ? 1 : key.intValue();
+    }
+
+    private int ensureSgeOfficialDataSource() {
+        List<Integer> ids = jdbcTemplate.query("""
+                SELECT id FROM data_source WHERE source_code = 'SGE_OFFICIAL_DELAYED_15M' LIMIT 1
+                """, (rs, rowNum) -> rs.getInt("id"));
+        if (!ids.isEmpty()) {
+            return ids.get(0);
+        }
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update("""
+                INSERT INTO data_source (
+                  source_code, source_name, source_type, trust_level, license_status, base_url, priority, enabled, remark
+                ) VALUES (
+                  'SGE_OFFICIAL_DELAYED_15M', 'SGE official delayed gold quote', 'EXCHANGE', 1, 'PUBLIC',
+                  'https://www.sge.com.cn/', 19, 1, 'Official SGE delayed quote with corrected quote timestamp for Au99.99'
                 )
                 """, new MapSqlParameterSource(), keyHolder);
         Number key = keyHolder.getKey();
@@ -1947,6 +2701,10 @@ public class MarketService {
                 + "&fltt=2&invt=2"
                 + "&ndays=1&iscr=0&iscca=0"
                 + "&_=" + System.currentTimeMillis();
+    }
+
+    private LocalDateTime normalizeEastmoneyTrendTime(DefaultIndex index, LocalDateTime quoteTime) {
+        return quoteTime;
     }
 
     private String eastmoneyKlineUrl(DefaultIndex index, LocalDate startDate, LocalDate endDate) {
@@ -2159,6 +2917,49 @@ public class MarketService {
         }
     }
 
+    private List<MarketDtos.HistoryPointResponse> fetchSinaGlobalFutureDailyKline(String symbol,
+                                                                                  LocalDate startDate,
+                                                                                  LocalDate endDate) {
+        DefaultIndex index = defaultIndex(symbol);
+        String code = sinaGlobalFutureSymbol(index);
+        if (code == null || code.isBlank()) {
+            return List.of();
+        }
+        try {
+            String url = SINA_GLOBAL_FUTURES_DAILY_URL + "?symbol=" + urlEncode(code);
+            JsonNode rows = objectMapper.readTree(fetchSinaText(url, StandardCharsets.UTF_8));
+            if (!rows.isArray()) {
+                return List.of();
+            }
+            List<MarketDtos.HistoryPointResponse> points = new ArrayList<>();
+            BigDecimal previousClose = null;
+            for (JsonNode row : rows) {
+                LocalDate tradingDay = parseLocalDate(row.path("date").asText(null));
+                BigDecimal closePrice = decimal(row.path("close").asText(null));
+                if (tradingDay == null || closePrice == null) {
+                    continue;
+                }
+                BigDecimal changePct = ratioPct(closePrice, previousClose);
+                if (!tradingDay.isBefore(startDate) && !tradingDay.isAfter(endDate)) {
+                    points.add(new MarketDtos.HistoryPointResponse(
+                            tradingDay,
+                            decimal(row.path("open").asText(null)),
+                            closePrice,
+                            decimal(row.path("high").asText(null)),
+                            decimal(row.path("low").asText(null)),
+                            changePct,
+                            decimal(row.path("volume").asText(null)),
+                            null
+                    ));
+                }
+                previousClose = closePrice;
+            }
+            return points;
+        } catch (Exception exception) {
+            return List.of();
+        }
+    }
+
     private List<MarketDtos.HistoryPointResponse> fetchShfeGoldMainDailyKline(String symbol, LocalDate startDate, LocalDate endDate) {
         DefaultIndex index = defaultIndex(symbol);
         if (index == null || !"AUM".equals(index.symbol())) {
@@ -2243,6 +3044,57 @@ public class MarketService {
                 && deliveryMonth != null
                 && !deliveryMonth.isBlank()
                 && deliveryMonth.chars().allMatch(Character::isDigit);
+    }
+
+    private List<MarketDtos.HistoryPointResponse> fetchSgeSpotGoldDailyKline(String symbol, LocalDate startDate, LocalDate endDate) {
+        DefaultIndex index = defaultIndex(symbol);
+        if (index == null || !"AU9999".equals(index.symbol()) || startDate == null || endDate == null || startDate.isAfter(endDate)) {
+            return List.of();
+        }
+        try {
+            ensureSgeOfficialDataSource();
+        } catch (Exception exception) {
+            return List.of();
+        }
+
+        Map<LocalDate, MarketDtos.HistoryPointResponse> byDay = new LinkedHashMap<>();
+        LocalDate cursor = startDate;
+        while (!cursor.isAfter(endDate)) {
+            LocalDate candidateEnd = cursor.plusDays(SGE_DAILY_CHUNK_DAYS - 1L);
+            LocalDate chunkEnd = candidateEnd.isAfter(endDate) ? endDate : candidateEnd;
+            try {
+                String url = String.format(SGE_DAILY_QUOTE_URL, cursor, chunkEnd);
+                String text = normalizeHtmlText(fetchUtf8Text(url));
+                Matcher matcher = SGE_DAILY_AU9999_PATTERN.matcher(text);
+                while (matcher.find()) {
+                    LocalDate tradingDay = parseLocalDate(matcher.group(1));
+                    if (tradingDay == null || tradingDay.isBefore(startDate) || tradingDay.isAfter(endDate)) {
+                        continue;
+                    }
+                    byDay.put(tradingDay, new MarketDtos.HistoryPointResponse(
+                            tradingDay,
+                            decimal(matcher.group(2)),
+                            decimal(matcher.group(5)),
+                            decimal(matcher.group(3)),
+                            decimal(matcher.group(4)),
+                            decimal(matcher.group(7)),
+                            decimal(matcher.group(9)),
+                            decimal(matcher.group(10))
+                    ));
+                }
+            } catch (Exception ignored) {
+                // Keep successful official chunks and let stored data fill isolated gaps.
+            }
+            cursor = chunkEnd.plusDays(1);
+        }
+        return byDay.values().stream()
+                .sorted((left, right) -> left.tradingDay().compareTo(right.tradingDay()))
+                .toList();
+    }
+
+    private MarketDtos.HistoryPointResponse fetchSgeSpotGoldDailyBar(LocalDate tradingDay) {
+        List<MarketDtos.HistoryPointResponse> points = fetchSgeSpotGoldDailyKline("AU9999", tradingDay, tradingDay);
+        return points.isEmpty() ? null : points.get(0);
     }
 
     private List<MarketDtos.HistoryPointResponse> fetchYahooDailyKline(String symbol, LocalDate startDate, LocalDate endDate) {
@@ -2367,23 +3219,101 @@ public class MarketService {
     }
 
     private List<MarketDtos.MinutePointResponse> loadMinutePoints(long instrumentId, LocalDate tradingDay) {
-        return loadMinutePoints(instrumentId, tradingDay, true);
+        return loadMinutePoints(instrumentId, tradingDay, null);
     }
 
-    private List<MarketDtos.MinutePointResponse> loadMinutePoints(long instrumentId, LocalDate tradingDay, boolean chinaMinuteWindow) {
-        String timeFilter = chinaMinuteWindow ? "AND TIME(quote_time) BETWEEN '09:30:00' AND '15:00:00'" : "";
-        return jdbcTemplate.query("""
-                SELECT quote_time,
-                       COALESCE(close_price, open_price) AS price,
-                       change_pct,
-                       volume,
-                       turnover
-                FROM market_quote_minute
-                WHERE instrument_id = :instrumentId AND trading_day = :tradingDay
-                  AND (change_pct IS NULL OR change_pct BETWEEN -100 AND 100)
-                  %s
-                ORDER BY quote_time
-                """.formatted(timeFilter), Map.of("instrumentId", instrumentId, "tradingDay", tradingDay), (rs, rowNum) ->
+    private List<MarketDtos.MinutePointResponse> loadMinutePoints(long instrumentId, LocalDate tradingDay, DefaultIndex index) {
+        if (isHkMarket(index)) {
+            List<MarketDtos.MinutePointResponse> eastmoneyPoints = loadMinutePoints(
+                    instrumentId,
+                    tradingDay,
+                    index,
+                    "EASTMONEY_INDEX_QUOTE"
+            );
+            List<MarketDtos.MinutePointResponse> sinaPoints = loadMinutePoints(
+                    instrumentId,
+                    tradingDay,
+                    index,
+                    "SINA_MARKET_QUOTE"
+            );
+            return selectHkMinutePoints(eastmoneyPoints, sinaPoints);
+        }
+        return loadMinutePoints(instrumentId, tradingDay, index, null);
+    }
+
+    private List<MarketDtos.MinutePointResponse> selectHkMinutePoints(List<MarketDtos.MinutePointResponse> eastmoneyPoints,
+                                                                      List<MarketDtos.MinutePointResponse> sinaPoints) {
+        if (eastmoneyPoints == null || eastmoneyPoints.isEmpty()) {
+            return sinaPoints == null ? List.of() : sinaPoints;
+        }
+        if (sinaPoints == null || sinaPoints.isEmpty()) {
+            return eastmoneyPoints;
+        }
+        if (sinaPoints.size() > eastmoneyPoints.size() && hkSeriesAligned(eastmoneyPoints, sinaPoints)) {
+            return sinaPoints;
+        }
+        return eastmoneyPoints;
+    }
+
+    private boolean hkSeriesAligned(List<MarketDtos.MinutePointResponse> left,
+                                    List<MarketDtos.MinutePointResponse> right) {
+        MarketDtos.MinutePointResponse leftLast = left.get(left.size() - 1);
+        MarketDtos.MinutePointResponse rightLast = right.get(right.size() - 1);
+        if (leftLast.quoteTime() == null || rightLast.quoteTime() == null
+                || leftLast.price() == null || rightLast.price() == null
+                || leftLast.price().compareTo(BigDecimal.ZERO) == 0) {
+            return false;
+        }
+        long minuteGap = Math.abs(Duration.between(leftLast.quoteTime(), rightLast.quoteTime()).toMinutes());
+        BigDecimal priceGapPct = leftLast.price()
+                .subtract(rightLast.price())
+                .abs()
+                .multiply(BigDecimal.valueOf(100))
+                .divide(leftLast.price().abs(), 6, RoundingMode.HALF_UP);
+        return minuteGap <= 5 && priceGapPct.compareTo(BigDecimal.valueOf(0.2)) <= 0;
+    }
+
+    private List<MarketDtos.MinutePointResponse> loadMinutePoints(long instrumentId,
+                                                                  LocalDate tradingDay,
+                                                                  DefaultIndex index,
+                                                                  String sourceCode) {
+        String sessionFilter = minuteSessionFilter(index);
+        String sourceFilter = sourceCode == null
+                ? ""
+                : "AND source_id = (SELECT id FROM data_source WHERE source_code = :sourceCode LIMIT 1)";
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("instrumentId", instrumentId)
+                .addValue("tradingDay", tradingDay);
+        if (sourceCode != null) {
+            params.addValue("sourceCode", sourceCode);
+        }
+        if (isUsMarket(index)) {
+            params.addValue("sessionStart", usSessionStartInChina(tradingDay));
+            params.addValue("sessionEnd", usSessionEndInChina(tradingDay));
+        } else if (isOvernightSpotMarket(index)) {
+            params.addValue("sessionStart", tradingDay.atTime(6, 0));
+            params.addValue("sessionEnd", tradingDay.plusDays(1).atTime(5, 0));
+        }
+        List<MarketDtos.MinutePointResponse> points = jdbcTemplate.query("""
+                SELECT mq.quote_time,
+                       COALESCE(mq.close_price, mq.open_price) AS price,
+                       mq.change_pct,
+                       mq.volume,
+                       mq.turnover
+                FROM market_quote_minute mq
+                JOIN (
+                  SELECT MAX(quote_time) AS quote_time
+                  FROM market_quote_minute
+                  WHERE instrument_id = :instrumentId
+                    AND (change_pct IS NULL OR change_pct BETWEEN -100 AND 100)
+                    %s
+                    %s
+                  GROUP BY DATE_FORMAT(quote_time, '%%Y-%%m-%%d %%H:%%i')
+                ) latest ON latest.quote_time = mq.quote_time
+                WHERE mq.instrument_id = :instrumentId
+                  AND (mq.change_pct IS NULL OR mq.change_pct BETWEEN -100 AND 100)
+                ORDER BY mq.quote_time
+                """.formatted(sessionFilter, sourceFilter), params, (rs, rowNum) ->
                 new MarketDtos.MinutePointResponse(
                         timestamp(rs.getTimestamp("quote_time")),
                         rs.getBigDecimal("price"),
@@ -2391,11 +3321,105 @@ public class MarketService {
                         rs.getBigDecimal("volume"),
                         rs.getBigDecimal("turnover")
                 ));
+        return sanitizeMinutePoints(points, index, tradingDay);
+    }
+
+    private String minuteSessionFilter(DefaultIndex index) {
+        if (isUsMarket(index)) {
+            return "AND quote_time BETWEEN :sessionStart AND :sessionEnd";
+        }
+        if (isOvernightSpotMarket(index)) {
+            return "AND quote_time BETWEEN :sessionStart AND :sessionEnd";
+        }
+        if (isHkMarket(index)) {
+            return """
+                    AND trading_day = :tradingDay
+                    AND (
+                      TIME(quote_time) BETWEEN '09:30:00' AND '12:00:00'
+                      OR TIME(quote_time) BETWEEN '13:00:00' AND '16:00:00'
+                    )
+                    """;
+        }
+        if (index == null || isChinaMarket(index)) {
+            return """
+                    AND trading_day = :tradingDay
+                    AND (
+                      TIME(quote_time) BETWEEN '09:30:00' AND '11:30:00'
+                      OR TIME(quote_time) BETWEEN '13:00:00' AND '15:00:00'
+                    )
+                    """;
+        }
+        return "AND trading_day = :tradingDay";
+    }
+
+    private List<MarketDtos.MinutePointResponse> sanitizeMinutePoints(List<MarketDtos.MinutePointResponse> points,
+                                                                      DefaultIndex index,
+                                                                      LocalDate tradingDay) {
+        if (points == null || points.isEmpty()) {
+            return List.of();
+        }
+        Map<LocalDateTime, MarketDtos.MinutePointResponse> byMinute = new LinkedHashMap<>();
+        points.stream()
+                .filter(point -> point != null && point.quoteTime() != null && point.price() != null)
+                .filter(point -> !isFutureQuoteTime(point.quoteTime()))
+                .filter(point -> isReasonableChange(point.changePct()))
+                .filter(point -> belongsToMinuteSession(index, tradingDay, point.quoteTime()))
+                .sorted((left, right) -> left.quoteTime().compareTo(right.quoteTime()))
+                .forEach(point -> byMinute.put(point.quoteTime().truncatedTo(ChronoUnit.MINUTES), point));
+        return new ArrayList<>(byMinute.values());
+    }
+
+    private boolean isReasonableChange(BigDecimal changePct) {
+        return changePct == null
+                || (changePct.compareTo(BigDecimal.valueOf(-100)) >= 0 && changePct.compareTo(BigDecimal.valueOf(100)) <= 0);
+    }
+
+    private boolean belongsToMinuteSession(DefaultIndex index, LocalDate tradingDay, LocalDateTime quoteTime) {
+        if (tradingDay == null || quoteTime == null) {
+            return true;
+        }
+        if (isUsMarket(index)) {
+            LocalDateTime sessionStart = usSessionStartInChina(tradingDay);
+            LocalDateTime sessionEnd = usSessionEndInChina(tradingDay);
+            return !quoteTime.isBefore(sessionStart) && !quoteTime.isAfter(sessionEnd);
+        }
+        if (isHkMarket(index)) {
+            LocalTime time = quoteTime.toLocalTime();
+            boolean morning = !time.isBefore(LocalTime.of(9, 30)) && !time.isAfter(LocalTime.NOON);
+            boolean afternoon = !time.isBefore(LocalTime.of(13, 0)) && !time.isAfter(LocalTime.of(16, 0));
+            return tradingDay.equals(quoteTime.toLocalDate()) && (morning || afternoon);
+        }
+        if (isSgeMarket(index)) {
+            LocalTime time = quoteTime.toLocalTime();
+            boolean night = !time.isBefore(LocalTime.of(20, 0)) || !time.isAfter(LocalTime.of(2, 30));
+            boolean morning = !time.isBefore(LocalTime.of(9, 0)) && !time.isAfter(LocalTime.of(11, 30));
+            boolean afternoon = !time.isBefore(LocalTime.of(13, 30)) && !time.isAfter(LocalTime.of(15, 30));
+            return tradingDay.equals(marketTradingDay(index, quoteTime)) && (night || morning || afternoon);
+        }
+        if (isOvernightSpotMarket(index)) {
+            LocalDateTime sessionStart = tradingDay.atTime(6, 0);
+            LocalDateTime sessionEnd = tradingDay.plusDays(1).atTime(5, 0);
+            return !quoteTime.isBefore(sessionStart) && !quoteTime.isAfter(sessionEnd);
+        }
+        if (isShfeMarket(index)) {
+            LocalTime time = quoteTime.toLocalTime();
+            boolean night = !time.isBefore(LocalTime.of(21, 0)) || !time.isAfter(LocalTime.of(2, 30));
+            boolean morning = !time.isBefore(LocalTime.of(9, 0)) && !time.isAfter(LocalTime.of(11, 30));
+            boolean afternoon = !time.isBefore(LocalTime.of(13, 30)) && !time.isAfter(LocalTime.of(15, 0));
+            return tradingDay.equals(marketTradingDay(index, quoteTime)) && (night || morning || afternoon);
+        }
+        if (index == null || isChinaMarket(index)) {
+            LocalTime time = quoteTime.toLocalTime();
+            boolean morning = !time.isBefore(LocalTime.of(9, 30)) && !time.isAfter(LocalTime.of(11, 30));
+            boolean afternoon = !time.isBefore(LocalTime.of(13, 0)) && !time.isAfter(LocalTime.of(15, 0));
+            return tradingDay.equals(quoteTime.toLocalDate()) && (morning || afternoon);
+        }
+        return tradingDay.equals(marketTradingDay(index, quoteTime));
     }
 
     private List<MarketDtos.MinutePointResponse> loadLatestQuotePoint(long instrumentId) {
         return jdbcTemplate.query("""
-                SELECT quote_time,
+                       SELECT quote_time,
                        last_price,
                        change_pct,
                        volume,
@@ -2403,9 +3427,13 @@ public class MarketService {
                 FROM market_quote_latest
                 WHERE instrument_id = :instrumentId
                   AND last_price IS NOT NULL
+                  AND quote_time <= :maxQuoteTime
                 ORDER BY quote_time DESC
                 LIMIT 1
-                """, Map.of("instrumentId", instrumentId), (rs, rowNum) ->
+                """, Map.of(
+                "instrumentId", instrumentId,
+                "maxQuoteTime", LocalDateTime.now(CHINA_ZONE).plusMinutes(2)
+        ), (rs, rowNum) ->
                 new MarketDtos.MinutePointResponse(
                         timestamp(rs.getTimestamp("quote_time")),
                         rs.getBigDecimal("last_price"),
@@ -2413,6 +3441,42 @@ public class MarketService {
                         rs.getBigDecimal("volume"),
                         rs.getBigDecimal("turnover")
                 ));
+    }
+
+    private String normalizeHtmlText(String html) {
+        if (html == null || html.isBlank()) {
+            return "";
+        }
+        return html
+                .replaceAll("(?is)<script.*?</script>", " ")
+                .replaceAll("(?is)<style.*?</style>", " ")
+                .replaceAll("(?i)</tr>|</p>|<br\\s*/?>", "\n")
+                .replaceAll("<[^>]+>", " ")
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&#37;", "%")
+                .replaceAll("[\\t\\x0B\\f\\r ]+", " ")
+                .replaceAll(" *\\n *", "\n")
+                .trim();
+    }
+
+    private LocalDate parseSgeReportDate(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        Matcher matcher = SGE_REPORT_DATE_PATTERN.matcher(text);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            return LocalDate.of(
+                    Integer.parseInt(matcher.group(1)),
+                    Integer.parseInt(matcher.group(2)),
+                    Integer.parseInt(matcher.group(3))
+            );
+        } catch (Exception exception) {
+            return null;
+        }
     }
 
     private String fetchUtf8Text(String url) {
@@ -2458,8 +3522,11 @@ public class MarketService {
         if (value == null) {
             return null;
         }
-        String normalized = value.trim().replace("%", "");
-        if (normalized.isBlank() || "--".equals(normalized)) {
+        String normalized = value.trim()
+                .replace("%", "")
+                .replace(",", "")
+                .replace("\u00A0", "");
+        if (normalized.isBlank() || "--".equals(normalized) || "-".equals(normalized)) {
             return null;
         }
         try {
@@ -2811,6 +3878,13 @@ public class MarketService {
         };
     }
 
+    private String currencyForMarket(String market, String symbol) {
+        if ("AU9999".equalsIgnoreCase(symbol == null ? "" : symbol)) {
+            return "CNY";
+        }
+        return currencyForMarket(market);
+    }
+
     private boolean isPreOpenClearWindow(LocalDateTime now, DefaultIndex index) {
         if (index == null) {
             return false;
@@ -2824,10 +3898,13 @@ public class MarketService {
             return !time.isBefore(LocalTime.of(8, 0)) && time.isBefore(LocalTime.of(9, 30));
         }
         if (isUsMarket(index)) {
-            if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
+            LocalDateTime usNow = usLocalTime(now);
+            DayOfWeek usDayOfWeek = usNow.getDayOfWeek();
+            if (usDayOfWeek == DayOfWeek.SATURDAY || usDayOfWeek == DayOfWeek.SUNDAY) {
                 return false;
             }
-            return !time.isBefore(LocalTime.of(20, 0)) && time.isBefore(LocalTime.of(21, 30));
+            LocalTime usTime = usNow.toLocalTime();
+            return !usTime.isBefore(LocalTime.of(8, 0)) && usTime.isBefore(LocalTime.of(9, 30));
         }
         if (isShfeMarket(index)) {
             if (dayOfWeek == DayOfWeek.SATURDAY || dayOfWeek == DayOfWeek.SUNDAY) {
@@ -2890,6 +3967,10 @@ public class MarketService {
         return Math.max(0, (int) Duration.between(quoteTime, LocalDateTime.now(CHINA_ZONE)).getSeconds());
     }
 
+    private boolean isFutureQuoteTime(LocalDateTime quoteTime) {
+        return quoteTime != null && quoteTime.isAfter(LocalDateTime.now(CHINA_ZONE).plusMinutes(2));
+    }
+
     private LocalDate expectedTradingDay(LocalDateTime now) {
         return expectedTradingDay(now, null);
     }
@@ -2899,25 +3980,33 @@ public class MarketService {
         LocalTime time = now.toLocalTime();
 
         if (isUsMarket(index)) {
-            if (isWeekend(day)) {
-                return previousWeekday(day.minusDays(1));
+            LocalDateTime usNow = usLocalTime(now);
+            LocalDate usDay = usNow.toLocalDate();
+            if (isWeekend(usDay)) {
+                return previousWeekday(usDay.minusDays(1));
             }
-            return time.isBefore(LocalTime.of(20, 0))
-                    ? previousWeekday(day.minusDays(1))
-                    : day;
+            return usNow.toLocalTime().isBefore(LocalTime.of(9, 30))
+                    ? previousWeekday(usDay.minusDays(1))
+                    : usDay;
         }
 
-        if (isShfeMarket(index)) {
+        if (isShfeMarket(index) || isSgeMarket(index)) {
             if (isWeekend(day)) {
-                return previousWeekday(day.minusDays(1));
-            }
-            if (time.isBefore(LocalTime.of(8, 0))) {
                 return previousWeekday(day.minusDays(1));
             }
             if (!time.isBefore(LocalTime.of(20, 0))) {
                 return nextWeekday(day.plusDays(1));
             }
             return day;
+        }
+
+        if (isOvernightSpotMarket(index)) {
+            if (isWeekend(day)) {
+                return previousWeekday(day.minusDays(1));
+            }
+            return time.isBefore(LocalTime.of(6, 0))
+                    ? previousWeekday(day.minusDays(1))
+                    : day;
         }
 
         if (isWeekend(day) || time.isBefore(LocalTime.of(9, 30))) {
@@ -2991,6 +4080,22 @@ public class MarketService {
         return days.isEmpty() ? null : days.get(0);
     }
 
+    private LocalDate latestMinuteTradingDayOnOrBefore(long instrumentId, LocalDate maxDay) {
+        if (maxDay == null) {
+            return latestMinuteTradingDay(instrumentId);
+        }
+        List<LocalDate> days = jdbcTemplate.query("""
+                SELECT MAX(trading_day) AS trading_day
+                FROM market_quote_minute
+                WHERE instrument_id = :instrumentId
+                  AND trading_day <= :maxDay
+                """, Map.of("instrumentId", instrumentId, "maxDay", maxDay), (rs, rowNum) -> {
+            Date date = rs.getDate("trading_day");
+            return date == null ? null : date.toLocalDate();
+        });
+        return days.isEmpty() ? null : days.get(0);
+    }
+
     private DefaultIndex defaultIndex(String symbol) {
         return DEFAULT_INDICES.stream()
                 .filter(item -> item.symbol().equalsIgnoreCase(symbol == null ? "" : symbol))
@@ -3019,8 +4124,7 @@ public class MarketService {
             case "DJIA" -> "gb_dji";
             case "SPX" -> "gb_inx";
             case "NDX100" -> "gb_ndx";
-            case "AUM" -> "nf_AU0";
-            case "XAU" -> "hf_XAU";
+            case "GC" -> "hf_GC";
             default -> null;
         };
     }
@@ -3059,12 +4163,21 @@ public class MarketService {
         };
     }
 
+    private String sinaGlobalFutureSymbol(DefaultIndex index) {
+        if (index == null) {
+            return null;
+        }
+        return switch (index.symbol()) {
+            case "GC" -> "GC";
+            default -> null;
+        };
+    }
+
     private String eastmoneyFutureStaticCode(DefaultIndex index) {
         if (index == null) {
             return null;
         }
         return switch (index.symbol()) {
-            case "AUM" -> "113_AUM";
             default -> null;
         };
     }
@@ -3080,7 +4193,7 @@ public class MarketService {
             case "DJIA" -> "^DJI";
             case "SPX" -> "^GSPC";
             case "NDX100" -> "^NDX";
-            case "XAU" -> "XAUUSD=X";
+            case "GC" -> "GC=F";
             default -> null;
         };
     }
@@ -3108,20 +4221,46 @@ public class MarketService {
         return result.isArray() && !result.isEmpty() ? result.get(0) : null;
     }
 
+    private LocalDateTime usLocalTime(LocalDateTime chinaTime) {
+        if (chinaTime == null) {
+            return null;
+        }
+        return chinaTime.atZone(CHINA_ZONE).withZoneSameInstant(US_EASTERN_ZONE).toLocalDateTime();
+    }
+
+    private LocalDateTime marketDisplayTime(DefaultIndex index, LocalDateTime chinaTime) {
+        return isUsMarket(index) ? usLocalTime(chinaTime) : chinaTime;
+    }
+
+    private LocalDateTime usSessionStartInChina(LocalDate tradingDay) {
+        return usSessionTimeInChina(tradingDay, LocalTime.of(9, 30));
+    }
+
+    private LocalDateTime usSessionEndInChina(LocalDate tradingDay) {
+        return usSessionTimeInChina(tradingDay, LocalTime.of(16, 0));
+    }
+
+    private LocalDateTime usSessionTimeInChina(LocalDate tradingDay, LocalTime time) {
+        return tradingDay.atTime(time)
+                .atZone(US_EASTERN_ZONE)
+                .withZoneSameInstant(CHINA_ZONE)
+                .toLocalDateTime();
+    }
+
     private LocalDate marketTradingDay(DefaultIndex index, LocalDateTime quoteTime) {
         if (quoteTime == null) {
             return expectedTradingDay(LocalDateTime.now(CHINA_ZONE), index);
         }
-        if (index != null && "SHFE".equals(index.market())) {
+        if (isShfeMarket(index) || isSgeMarket(index)) {
             LocalTime time = quoteTime.toLocalTime();
-            if (time.isBefore(LocalTime.of(8, 0))) {
-                return previousWeekday(quoteTime.toLocalDate().minusDays(1));
-            }
             if (!time.isBefore(LocalTime.of(20, 0))) {
                 return nextWeekday(quoteTime.toLocalDate().plusDays(1));
             }
         }
-        if (isUsMarket(index) && quoteTime.toLocalTime().isBefore(LocalTime.of(20, 0))) {
+        if (isUsMarket(index)) {
+            return quoteTime.atZone(CHINA_ZONE).withZoneSameInstant(US_EASTERN_ZONE).toLocalDate();
+        }
+        if (isOvernightSpotMarket(index) && quoteTime.toLocalTime().isBefore(LocalTime.of(6, 0))) {
             return previousWeekday(quoteTime.toLocalDate().minusDays(1));
         }
         return quoteTime.toLocalDate();
@@ -3131,8 +4270,28 @@ public class MarketService {
         return index != null && "SHFE".equals(index.market());
     }
 
+    private boolean isHkMarket(DefaultIndex index) {
+        return index != null && "HKEX".equals(index.market());
+    }
+
+    private boolean isSgeMarket(DefaultIndex index) {
+        return index != null && "AU9999".equals(index.symbol());
+    }
+
+    private boolean isOfficialGoldMarket(DefaultIndex index) {
+        return index != null && "AU9999".equals(index.symbol());
+    }
+
+    private boolean isGlobalGoldMarket(DefaultIndex index) {
+        return index != null && "GC".equals(index.symbol());
+    }
+
     private boolean isUsMarket(DefaultIndex index) {
         return index != null && ("NYSE".equals(index.market()) || "NASDAQ".equals(index.market()) || "AMEX".equals(index.market()));
+    }
+
+    private boolean isOvernightSpotMarket(DefaultIndex index) {
+        return index != null && !isSgeMarket(index) && ("OTHER".equals(index.market()) || "FX".equals(index.market()));
     }
 
     private JsonNode firstDataArray(JsonNode node) {
@@ -3316,6 +4475,24 @@ public class MarketService {
     ) {
     }
 
+    private record OfficialGoldQuote(
+            DefaultIndex index,
+            String name,
+            BigDecimal lastPrice,
+            BigDecimal prevClose,
+            BigDecimal openPrice,
+            BigDecimal highPrice,
+            BigDecimal lowPrice,
+            BigDecimal changeAmount,
+            BigDecimal changePct,
+            BigDecimal volume,
+            BigDecimal turnover,
+            LocalDate tradingDay,
+            LocalDateTime quoteTime,
+            int dataLagSeconds
+    ) {
+    }
+
     private record FutureTick(
             LocalDateTime quoteTime,
             BigDecimal price,
@@ -3336,6 +4513,19 @@ public class MarketService {
     }
 
     private record InstrumentRef(Long id, String market, String symbol, String name) {
+    }
+
+    private record EastmoneyTrendPoint(
+            LocalDate tradingDay,
+            LocalDateTime quoteTime,
+            BigDecimal openPrice,
+            BigDecimal highPrice,
+            BigDecimal lowPrice,
+            BigDecimal closePrice,
+            BigDecimal changePct,
+            BigDecimal volume,
+            BigDecimal turnover
+    ) {
     }
 
     private record StoredMinutePoint(

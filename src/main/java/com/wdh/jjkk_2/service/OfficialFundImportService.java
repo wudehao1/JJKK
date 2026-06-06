@@ -13,7 +13,9 @@ import org.springframework.web.client.RestClient;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 官方基金搜索和本地基础信息导入服务。
@@ -25,7 +27,7 @@ import java.util.List;
 @Service
 public class OfficialFundImportService {
     private static final String EASTMONEY_FUND_SEARCH_URL =
-            "https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=1&key=";
+            "https://fundsuggest.eastmoney.com/FundSearch/api/FundSearchAPI.ashx?m=9&key=";
 
     private final FundService fundService;
     private final NamedParameterJdbcTemplate jdbcTemplate;
@@ -78,13 +80,13 @@ public class OfficialFundImportService {
                 return 0;
             }
             int imported = 0;
+            Set<String> importedCodes = new HashSet<>();
             for (JsonNode item : datas) {
-                String fundCode = firstText(item, "CODE", "FundCode", "fundCode");
-                String fundName = firstText(item, "NAME", "FundName", "fundName");
-                if (!isFundCode(fundCode) || !StringUtils.hasText(fundName)) {
+                FundCandidate candidate = fundCandidate(item, EASTMONEY_FUND_SEARCH_URL + urlEncode(keyword));
+                if (candidate == null || !importedCodes.add(candidate.fundCode())) {
                     continue;
                 }
-                upsertFund(fundCode, fundName, EASTMONEY_FUND_SEARCH_URL + urlEncode(keyword));
+                upsertFund(candidate);
                 imported += 1;
                 if (imported >= limit) {
                     break;
@@ -96,72 +98,126 @@ public class OfficialFundImportService {
         }
     }
 
-    private void upsertFund(String fundCode, String fundName, String sourceUrl) {
+    private FundCandidate fundCandidate(JsonNode item, String sourceUrl) {
+        String fundCode = firstText(item, "CODE", "FundCode", "fundCode");
+        JsonNode baseInfo = item.path("FundBaseInfo");
+        String officialCode = firstText(baseInfo, "FCODE", "_id");
+        if (!isFundCode(fundCode)
+                || !fundCode.equals(officialCode)
+                || !isPublicFundItem(item, baseInfo)) {
+            return null;
+        }
+        String fundName = firstText(baseInfo, "SHORTNAME", "FundName", "fundName", "NAME");
+        if (!StringUtils.hasText(fundName)) {
+            fundName = firstText(item, "NAME", "FundName", "fundName");
+        }
+        if (!StringUtils.hasText(fundName)) {
+            return null;
+        }
+        String typeText = firstText(baseInfo, "FTYPE", "FUNDTYPE", "RSFUNDTYPE");
+        String pinyinAbbr = firstText(item, "JP", "PY", "pinyin");
+        return new FundCandidate(
+                fundCode,
+                fundName,
+                pinyinAbbr,
+                inferFundType(typeText, fundName),
+                sourceUrl
+        );
+    }
+
+    private boolean isPublicFundItem(JsonNode item, JsonNode baseInfo) {
+        String categoryDesc = firstText(item, "CATEGORYDESC", "CategoryDesc", "categoryDesc");
+        int category = item.path("CATEGORY").asInt(-1);
+        if (StringUtils.hasText(categoryDesc) && !"基金".equals(categoryDesc.trim())) {
+            return false;
+        }
+        if (category >= 0 && category != 700) {
+            return false;
+        }
+        return baseInfo != null && !baseInfo.isMissingNode() && !baseInfo.isNull();
+    }
+
+    private void upsertFund(FundCandidate candidate) {
         jdbcTemplate.update("""
                 INSERT INTO fund_product (
-                  main_fund_code, fund_name, fund_short_name, fund_type, operation_mode,
+                  main_fund_code, fund_name, fund_short_name, pinyin_abbr, fund_type, operation_mode,
                   currency, status, source_url, source_updated_at
                 ) VALUES (
-                  :fundCode, :fundName, :fundName, :fundType, 'OPEN',
+                  :fundCode, :fundName, :fundName, :pinyinAbbr, :fundType, 'OPEN',
                   'CNY', 'ACTIVE', :sourceUrl, :sourceUpdatedAt
                 )
                 ON DUPLICATE KEY UPDATE
                   fund_name = VALUES(fund_name),
                   fund_short_name = VALUES(fund_short_name),
+                  pinyin_abbr = COALESCE(VALUES(pinyin_abbr), pinyin_abbr),
+                  fund_type = VALUES(fund_type),
                   status = 'ACTIVE',
                   source_url = VALUES(source_url),
                   source_updated_at = VALUES(source_updated_at),
                   updated_at = CURRENT_TIMESTAMP(3)
-                """, params(fundCode, fundName, sourceUrl));
+                """, params(candidate));
 
         Long productId = jdbcTemplate.queryForObject("""
                 SELECT id FROM fund_product WHERE main_fund_code = :fundCode LIMIT 1
-                """, new MapSqlParameterSource("fundCode", fundCode), Long.class);
+                """, new MapSqlParameterSource("fundCode", candidate.fundCode()), Long.class);
         if (productId == null) {
             return;
         }
         jdbcTemplate.update("""
                 INSERT INTO fund_share_class (
-                  product_id, fund_code, fund_name, fund_abbr, status, source_url, source_updated_at
+                  product_id, fund_code, fund_name, fund_abbr, pinyin_abbr, status, source_url, source_updated_at
                 ) VALUES (
-                  :productId, :fundCode, :fundName, :fundName, 'ACTIVE', :sourceUrl, :sourceUpdatedAt
+                  :productId, :fundCode, :fundName, :fundName, :pinyinAbbr, 'ACTIVE', :sourceUrl, :sourceUpdatedAt
                 )
                 ON DUPLICATE KEY UPDATE
                   product_id = VALUES(product_id),
                   fund_name = VALUES(fund_name),
                   fund_abbr = VALUES(fund_abbr),
+                  pinyin_abbr = COALESCE(VALUES(pinyin_abbr), pinyin_abbr),
                   status = 'ACTIVE',
                   source_url = VALUES(source_url),
                   source_updated_at = VALUES(source_updated_at),
                   updated_at = CURRENT_TIMESTAMP(3)
-                """, params(fundCode, fundName, sourceUrl).addValue("productId", productId));
+                """, params(candidate).addValue("productId", productId));
     }
 
-    private MapSqlParameterSource params(String fundCode, String fundName, String sourceUrl) {
+    private MapSqlParameterSource params(FundCandidate candidate) {
         return new MapSqlParameterSource()
-                .addValue("fundCode", fundCode)
-                .addValue("fundName", fundName)
-                .addValue("fundType", inferFundType(fundName))
-                .addValue("sourceUrl", sourceUrl)
+                .addValue("fundCode", candidate.fundCode())
+                .addValue("fundName", candidate.fundName())
+                .addValue("pinyinAbbr", trimToNull(candidate.pinyinAbbr()))
+                .addValue("fundType", candidate.fundType())
+                .addValue("sourceUrl", candidate.sourceUrl())
                 .addValue("sourceUpdatedAt", LocalDateTime.now());
     }
 
-    private String inferFundType(String fundName) {
+    private String inferFundType(String typeText, String fundName) {
+        String type = typeText == null ? "" : typeText.toUpperCase();
         String name = fundName == null ? "" : fundName.toUpperCase();
-        if (name.contains("ETF") || name.contains("指数")) {
-            return "INDEX";
-        }
-        if (name.contains("债")) {
-            return "BOND";
-        }
-        if (name.contains("QDII")) {
+        String combined = type + " " + name;
+        if (combined.contains("QDII")) {
             return "QDII";
         }
-        if (name.contains("FOF")) {
+        if (combined.contains("FOF")) {
             return "FOF";
         }
-        if (name.contains("货币")) {
+        if (combined.contains("REIT")) {
+            return "REIT";
+        }
+        if (combined.contains("货币")) {
             return "MONEY_MARKET";
+        }
+        if (type.contains("指数") || name.contains("ETF") || name.contains("指数")) {
+            return "INDEX";
+        }
+        if (type.contains("债券") || type.contains("短债") || type.contains("纯债")) {
+            return "BOND";
+        }
+        if (type.contains("混合") || name.contains("混合")) {
+            return "MIXED";
+        }
+        if (type.contains("股票") || name.contains("股票")) {
+            return "STOCK";
         }
         return "OTHER";
     }
@@ -180,6 +236,10 @@ public class OfficialFundImportService {
         return value != null && value.matches("\\d{6}");
     }
 
+    private String trimToNull(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
     private String normalizeKeyword(String keyword) {
         if (!StringUtils.hasText(keyword)) {
             return "";
@@ -189,5 +249,14 @@ public class OfficialFundImportService {
 
     private String urlEncode(String value) {
         return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    private record FundCandidate(
+            String fundCode,
+            String fundName,
+            String pinyinAbbr,
+            String fundType,
+            String sourceUrl
+    ) {
     }
 }
