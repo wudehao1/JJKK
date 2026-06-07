@@ -1,11 +1,19 @@
-<script setup lang="ts"></script>
+﻿<script setup lang="ts">
+import { useRoute } from 'vue-router'
+import { computed } from 'vue'
+import BottomNav from '@/components/BottomNav.vue'
+import { useTheme } from '@/composables/useTheme'
+
+useTheme()
+const route = useRoute()
+const showNav = computed(() => !!route.meta.tab)
+</script>
 
 <template>
-  <h1>You did it!</h1>
-  <p>
-    Visit <a href="https://vuejs.org/" target="_blank" rel="noopener">vuejs.org</a> to read the
-    documentation
-  </p>
+  <router-view />
+  <BottomNav v-if="showNav" />
 </template>
 
-<style scoped></style>
+<style>
+@import '@/styles/main.css';
+</style>
