@@ -2,10 +2,12 @@
 import { ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
 
 const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
+const toast = useToast()
 
 const nickname = ref('')
 const loading = ref(false)
@@ -14,10 +16,11 @@ async function doLogin() {
   loading.value = true
   try {
     await auth.quickLogin(nickname.value || undefined)
+    toast.success('登录成功')
     const redirect = (route.query.redirect as string) || '/'
-    router.replace(redirect)
+    setTimeout(() => router.replace(redirect), 500)
   } catch (e: any) {
-    alert(e.message || '登录失败')
+    toast.error(e.message || '登录失败')
   } finally {
     loading.value = false
   }

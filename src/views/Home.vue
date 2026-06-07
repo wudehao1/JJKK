@@ -20,9 +20,7 @@ onMounted(async () => {
     overview.value = ov
     sectors.value = sec || []
     rankings.value = rank || []
-  } catch {
-    // silent
-  } finally {
+  } catch { /* silent */ } finally {
     loading.value = false
   }
 })
@@ -38,13 +36,10 @@ function pctClass(val: number) {
   return 'flat'
 }
 
-function goFund(code: string) {
-  router.push('/fund/' + code)
-}
-
-function goSearch() {
-  router.push('/search')
-}
+function goFund(code: string) { router.push('/fund/' + code) }
+function goMarket(symbol: string) { router.push('/market/' + symbol) }
+function goSectorRankings() { router.push('/sector-rankings') }
+function goSearch() { router.push('/search') }
 </script>
 
 <template>
@@ -68,6 +63,7 @@ function goSearch() {
           :key="idx.symbol"
           class="index-card"
           :class="pctClass(idx.changePct)"
+          @click="goMarket(idx.symbol)"
         >
           <div class="index-name">{{ idx.name }}</div>
           <div class="index-value">{{ idx.latest?.toFixed(2) || '--' }}</div>
@@ -92,7 +88,10 @@ function goSearch() {
 
       <!-- Sector rankings -->
       <div class="section" v-if="sectors.length">
-        <div class="section-title">板块涨幅</div>
+        <div class="section-header" @click="goSectorRankings">
+          <span class="section-title">板块涨幅</span>
+          <span class="section-more">更多 &rsaquo;</span>
+        </div>
         <div class="sector-list">
           <div v-for="sec in sectors" :key="sec.sectorCode" class="sector-item">
             <span class="sector-name">{{ sec.sectorName }}</span>
@@ -118,7 +117,7 @@ function goSearch() {
             </div>
             <div class="rank-right">
               <span class="rank-nav">{{ fund.unitNav?.toFixed(4) || '--' }}</span>
-              <span class="rank-return" :class="pctClass(fund.estimateReturnPct)">{{ formatPct(fund.estimateReturnPct || 0) }}</span>
+              <span class="rank-return" :class="pctClass(fund.estimateReturnPct || 0)">{{ formatPct(fund.estimateReturnPct || 0) }}</span>
             </div>
           </div>
         </div>
@@ -130,9 +129,7 @@ function goSearch() {
 <style scoped>
 .home-page { padding-bottom: 72px; }
 .page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   padding: 16px 16px 8px;
 }
 .page-title { font-size: 20px; font-weight: 800; color: var(--color-text-primary); margin: 0; }
@@ -144,16 +141,11 @@ function goSearch() {
 .loading-state { text-align: center; padding: 40px; color: var(--color-text-secondary); }
 
 .index-cards {
-  display: flex;
-  gap: 8px;
-  padding: 8px 16px;
-  overflow-x: auto;
+  display: flex; gap: 8px; padding: 8px 16px; overflow-x: auto;
 }
 .index-card {
-  flex: 1; min-width: 100px;
-  padding: 12px; border-radius: 10px;
-  background: var(--color-bg-card);
-  text-align: center;
+  flex: 1; min-width: 100px; padding: 12px; border-radius: 10px;
+  background: var(--color-bg-card); text-align: center; cursor: pointer;
 }
 .index-card.up { background: linear-gradient(135deg, #FEF2F2, #FEE2E2); }
 .index-card.down { background: linear-gradient(135deg, #F0FDF4, #DCFCE7); }
@@ -164,9 +156,7 @@ function goSearch() {
 .index-card.down .index-change { color: var(--color-down); }
 .index-pct { font-weight: 700; }
 
-.market-stats {
-  display: flex; gap: 12px; padding: 8px 16px;
-}
+.market-stats { display: flex; gap: 12px; padding: 8px 16px; }
 .stat-item {
   flex: 1; display: flex; align-items: center; gap: 6px;
   padding: 10px 12px; border-radius: 8px;
@@ -177,13 +167,17 @@ function goSearch() {
 .stat-value.down { color: var(--color-down); font-weight: 700; }
 
 .section { padding: 12px 16px; }
-.section-title { font-size: 15px; font-weight: 700; color: var(--color-text-primary); margin-bottom: 8px; }
+.section-header {
+  display: flex; justify-content: space-between; align-items: center;
+  cursor: pointer; margin-bottom: 8px;
+}
+.section-title { font-size: 15px; font-weight: 700; color: var(--color-text-primary); }
+.section-more { font-size: 13px; color: var(--color-primary); }
 
 .sector-list { background: var(--color-bg-card); border-radius: 10px; overflow: hidden; }
 .sector-item {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 10px 14px; border-bottom: 1px solid var(--color-border);
 }
 .sector-item:last-child { border-bottom: none; }
 .sector-name { font-size: 13px; color: var(--color-text-primary); }

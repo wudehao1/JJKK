@@ -2,6 +2,7 @@
 import { useRoute } from 'vue-router'
 import { computed } from 'vue'
 import BottomNav from '@/components/BottomNav.vue'
+import Toast from '@/components/Toast.vue'
 import { useTheme } from '@/composables/useTheme'
 
 useTheme()
@@ -12,6 +13,7 @@ const showNav = computed(() => !!route.meta.tab)
 <template>
   <router-view />
   <BottomNav v-if="showNav" />
+  <Toast />
 </template>
 
 <style>

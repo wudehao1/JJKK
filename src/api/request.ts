@@ -1,5 +1,6 @@
 ﻿import axios from 'axios'
 import type { ApiResponse } from '@/types'
+import { useToast } from '@/composables/useToast'
 
 const TOKEN_KEY = 'jk_auth_token'
 const USER_ID_KEY = 'jk_user_id'
@@ -23,6 +24,7 @@ http.interceptors.response.use(
     const body = response.data as ApiResponse
     if (body.success === false) {
       const msg = body.message || '请求失败'
+      useToast().error(msg)
       return Promise.reject(new Error(msg))
     }
     return body.data === undefined ? body : body.data
@@ -33,10 +35,13 @@ http.interceptors.response.use(
       if (status === 401 || status === 403) {
         clearAuth()
         window.location.href = '/login'
+        return Promise.reject(error)
       }
       const msg = error.response.data?.message || '请求失败'
+      useToast().error(msg)
       return Promise.reject(new Error(msg))
     }
+    useToast().error('网络连接失败，请检查网络')
     return Promise.reject(new Error('网络连接失败'))
   }
 )

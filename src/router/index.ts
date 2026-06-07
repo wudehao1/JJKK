@@ -23,6 +23,12 @@ const router = createRouter({
       meta: { tab: true, auth: true }
     },
     {
+      path: '/information',
+      name: 'information',
+      component: () => import('@/views/Information.vue'),
+      meta: { tab: true }
+    },
+    {
       path: '/me',
       name: 'me',
       component: () => import('@/views/Me.vue'),
@@ -33,6 +39,23 @@ const router = createRouter({
       name: 'fund-detail',
       component: () => import('@/views/FundDetail.vue'),
       props: true
+    },
+    {
+      path: '/information/:id',
+      name: 'information-detail',
+      component: () => import('@/views/InformationDetail.vue'),
+      props: true
+    },
+    {
+      path: '/market/:symbol',
+      name: 'market-detail',
+      component: () => import('@/views/MarketDetail.vue'),
+      props: true
+    },
+    {
+      path: '/sector-rankings',
+      name: 'sector-rankings',
+      component: () => import('@/views/SectorRankings.vue')
     },
     {
       path: '/search',
