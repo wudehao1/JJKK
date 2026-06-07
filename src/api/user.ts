@@ -52,3 +52,7 @@ export function getInformationDetail(id: number): Promise<unknown> {
 export function getProfitAnalysis(userId: number, options?: { range?: string; accountId?: number }): Promise<unknown> {
   return http.get('/users/' + userId + '/profit-analysis', { params: options || {} })
 }
+
+export function submitFeedback(data: { content: string }): Promise<void> {
+  return http.post('/feedback', data)
+}
