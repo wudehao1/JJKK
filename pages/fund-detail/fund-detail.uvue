@@ -74,12 +74,12 @@
           <view v-if="displayPoints.length === 0" class="empty-mask">
             <text class="empty-text">暂无走势数据</text>
           </view>
-          <view v-if="currentRange === 'today' && barrageEnabled" class="barrage-layer">
+          <view v-if="currentRange === 'today'" class="barrage-layer">
             <view
               v-for="item in barrageViews"
               :key="item.key"
               class="barrage-item"
-              :style="item.style"
+              :style="'left:' + item.left + 'px;top:' + item.top + 'px;min-width:' + item.width + 'px;'"
             >
               <text class="barrage-text" :style="'color:' + item.color + ';'">{{ item.content }}</text>
             </view>
@@ -106,7 +106,6 @@
         <view class="barrage-head">
           <view>
             <text class="barrage-title">弹幕</text>
-            <text class="barrage-note">叠在分时图上，只播放一次</text>
           </view>
           <view class="barrage-toggle" :class="barrageEnabled ? '' : 'barrage-toggle-off'" @click="toggleBarrage">
             <text class="barrage-toggle-text">{{ barrageEnabled ? '屏蔽弹幕' : '显示弹幕' }}</text>
@@ -129,7 +128,7 @@
             v-model="barrageInput"
             maxlength="60"
             confirm-type="send"
-            placeholder="发条弹幕，颜文字和Emoji都可以"
+            placeholder="发送您的见解~"
             @confirm="sendBarrage"
           />
           <view class="barrage-send" :class="barrageSending ? 'barrage-send-disabled' : ''" @click="sendBarrage">
@@ -351,7 +350,9 @@ export default {
       barrageCycle: 0,
       barrageItems: [],
       barrageViews: [],
-      barrageColors: ['#1677F2', '#D94252', '#18A875', '#F59E0B', '#8B5CF6', '#111827']
+      barrageColors: ['#1677F2', '#D94252', '#18A875', '#F59E0B', '#8B5CF6', '#111827'],
+      barrageTimer: 0,
+      barrageSpeed: 2,
     }
   },
   computed: {
@@ -500,9 +501,11 @@ export default {
   },
   onHide() {
     this.stopTimer()
+    this.stopBarrageLoop()
   },
   onUnload() {
     this.stopTimer()
+    this.stopBarrageLoop()
   },
   methods: {
     applyPageTheme() {
@@ -689,20 +692,49 @@ export default {
         this.loadBarrages()
       } else {
         this.barrageViews = []
+        this.stopBarrageLoop()
       }
     },
     selectBarrageColor(color) {
       this.barrageColor = color || '#1677F2'
     },
-    loadBarrages(replay = true) {
+    startBarrageLoop() {
+      this.stopBarrageLoop()
+      const self = this
+      this.barrageTimer = setInterval(function () { self.tickBarrages() }, 40)
+    },
+    stopBarrageLoop() {
+      if (this.barrageTimer) {
+        clearInterval(this.barrageTimer)
+        this.barrageTimer = 0
+      }
+    },
+    tickBarrages() {
+      const views = this.barrageViews || []
+      if (!views.length) {
+        this.stopBarrageLoop()
+        return
+      }
+      const speed = this.barrageSpeed || 2
+      const next = []
+      for (let i = 0; i < views.length; i++) {
+        const item = views[i]
+        const newLeft = item.left - speed
+        if (newLeft + item.width < 0) continue
+        next.push({ key: item.key, id: item.id, content: item.content, color: item.color, left: newLeft, width: item.width, top: item.top })
+      }
+      this.barrageViews = next
+    },
+    loadBarrages(replay) {
       if (!this.fundCode || this.currentRange !== 'today') return
-      getFundBullets(this.fundCode).then((data) => {
-        if (!data || String(data.fundCode || '') !== String(this.fundCode)) return
-        this.barrageItems = data.items || []
-        if (replay && this.barrageEnabled) {
-          this.layoutBarrages()
+      const self = this
+      getFundBullets(this.fundCode).then(function (data) {
+        if (!data || String(data.fundCode || '') !== String(self.fundCode)) return
+        self.barrageItems = data.items || []
+        if (replay !== false && self.barrageEnabled) {
+          self.layoutBarrages()
         }
-      }).catch(() => {})
+      }).catch(function () {})
     },
     sendBarrage() {
       if (this.barrageSending) return
@@ -715,72 +747,104 @@ export default {
         uni.showToast({ title: '弹幕最多60个字', icon: 'none' })
         return
       }
-      const beforeIds = new Set((this.barrageItems || []).map((item) => String(item.id || '')))
+      const beforeIds = new Set((this.barrageItems || []).map(function (item) { return String(item.id || '') }))
+      const self = this
       this.barrageSending = true
       sendFundBullet(this.fundCode, {
-        content,
+        content: content,
         color: this.barrageColor || '#1677F2'
-      }).then((data) => {
-        this.barrageInput = ''
-        this.barrageEnabled = true
+      }).then(function (data) {
+        self.barrageInput = ''
         const items = data && data.items ? data.items : []
-        this.barrageItems = items
-        const fresh = items.find((item) => !beforeIds.has(String(item.id || ''))) || items[items.length - 1]
-        if (fresh) this.appendBarrageView(fresh)
-      }).finally(() => {
-        this.barrageSending = false
+        self.barrageItems = items
+        const fresh = items.find(function (item) { return !beforeIds.has(String(item.id || '')) }) || items[items.length - 1]
+        if (fresh && self.barrageEnabled) self.appendBarrageView(fresh)
+      }).finally(function () {
+        self.barrageSending = false
       })
     },
     layoutBarrages() {
       const now = Date.now()
-      const rows = (this.barrageItems || []).filter((item) => {
+      const rows = (this.barrageItems || []).filter(function (item) {
         if (!item || !item.content) return false
         const expiresAt = Date.parse(item.expiresAt || '')
         return !Number.isFinite(expiresAt) || expiresAt > now
-      }).slice(-15).sort((a, b) => {
+      }).slice(-15).sort(function (a, b) {
         return Date.parse(a.createdAt || '') - Date.parse(b.createdAt || '')
       })
+      if (!rows.length) { this.barrageViews = []; return }
       const lanes = this.barrageLaneCount()
-      const laneNextDelay = Array.from({ length: lanes }).map((_, index) => index * 0.9)
-      const laneGap = 7.2
-      const duration = 18
+      const laneNextSlot = []
+      for (let i = 0; i < lanes; i++) laneNextSlot.push(0)
+      const chartW = this.chartWidth || 320
+      const speed = this.barrageSpeed || 2
       this.barrageCycle += 1
-      const views = rows.map((item, index) => {
-        let lane = 0
-        for (let i = 1; i < lanes; i += 1) {
-          if (laneNextDelay[i] < laneNextDelay[lane]) lane = i
-        }
+      const views = []
+      for (let index = 0; index < rows.length; index++) {
+        const item = rows[index]
         const content = String(item.content || '')
         const width = Math.min(246, Math.max(78, this.textLength(content) * 13 + 38))
-        const top = this.barrageLaneTop(lane, String(item.id || index))
-        const delay = laneNextDelay[lane]
-        laneNextDelay[lane] += laneGap
-        return {
-          key: String(item.id || ('barrage-' + index)) + '-' + this.barrageCycle,
-          id: item.id || ('barrage-' + index),
-          content,
-          color: this.safeBarrageColor(item.color),
-          style: 'top:' + top + 'px;left:-' + width + 'px;min-width:' + width + 'px;animation-duration:' + duration + 's;animation-delay:' + delay.toFixed(1) + 's;'
+        let bestLane = 0
+        for (let i = 1; i < lanes; i++) {
+          if (laneNextSlot[i] < laneNextSlot[bestLane]) bestLane = i
         }
-      })
+        const startLeft = Math.max(chartW, laneNextSlot[bestLane])
+        const top = this.barrageLaneTop(bestLane, String(item.id || index))
+        const travelTime = (startLeft + width) / speed
+        laneNextSlot[bestLane] = startLeft + width + 40
+        views.push({
+          key: String(item.id || ('b' + index)) + '-' + this.barrageCycle,
+          id: item.id || ('b' + index),
+          content: content,
+          color: this.safeBarrageColor(item.color),
+          left: startLeft,
+          width: width,
+          top: top
+        })
+      }
       this.barrageViews = views
+      this.startBarrageLoop()
     },
     appendBarrageView(item) {
+      if (!this.barrageEnabled) return
       const content = String(item.content || '')
       if (!content) return
       const lanes = this.barrageLaneCount()
-      const lane = this.barrageOffset(String(item.id || content), lanes)
       const width = Math.min(246, Math.max(78, this.textLength(content) * 13 + 38))
-      const top = this.barrageLaneTop(lane, String(item.id || content))
-      const view = {
-        key: String(item.id || Date.now()) + '-send-' + Date.now(),
-        id: item.id || ('send-' + Date.now()),
-        content,
-        color: this.safeBarrageColor(item.color),
-        style: 'top:' + top + 'px;left:-' + width + 'px;min-width:' + width + 'px;animation-duration:18s;animation-delay:0.1s;'
+      const chartW = this.chartWidth || 320
+      const views = this.barrageViews || []
+      const laneRightEdge = []
+      for (let i = 0; i < lanes; i++) laneRightEdge.push(0)
+      for (let i = 0; i < views.length; i++) {
+        const v = views[i]
+        const approxLane = Math.round((v.top - 26) / 28)
+        if (approxLane >= 0 && approxLane < lanes) {
+          const rightEdge = v.left + v.width
+          if (rightEdge > laneRightEdge[approxLane]) laneRightEdge[approxLane] = rightEdge
+        }
       }
-      const keepIds = new Set((this.barrageItems || []).slice(-15).map((row) => String(row.id || '')))
-      this.barrageViews = (this.barrageViews || []).filter((row) => keepIds.has(String(row.id || ''))).concat(view).slice(-15)
+      let bestLane = 0
+      for (let i = 1; i < lanes; i++) {
+        if (laneRightEdge[i] < laneRightEdge[bestLane]) bestLane = i
+      }
+      let startLeft = chartW
+      if (laneRightEdge[bestLane] > chartW - width - 30) {
+        startLeft = laneRightEdge[bestLane] + 40
+      }
+      const top = this.barrageLaneTop(bestLane, String(item.id || content))
+      const view = {
+        key: String(item.id || Date.now()) + '-s-' + Date.now(),
+        id: item.id || ('s-' + Date.now()),
+        content: content,
+        color: this.safeBarrageColor(item.color),
+        left: startLeft,
+        width: width,
+        top: top
+      }
+      const keepIds = new Set((this.barrageItems || []).slice(-15).map(function (row) { return String(row.id || '') }))
+      const filtered = (this.barrageViews || []).filter(function (row) { return keepIds.has(String(row.id || '')) })
+      this.barrageViews = filtered.concat(view).slice(-15)
+      this.startBarrageLoop()
     },
     barrageLaneCount() {
       return Math.max(4, Math.min(6, Math.floor((this.chartHeight - 68) / 28)))
@@ -815,6 +879,7 @@ export default {
       if (range === 'today') {
         this.loadBarrages()
       } else {
+        this.stopBarrageLoop()
         this.barrageViews = []
       }
     },
@@ -1042,7 +1107,7 @@ export default {
 .barrage-toggle-off { background-color: #EEF0F3; }
 .barrage-toggle-text { color: #1677F2; font-size: 10px; font-weight: 800; }
 .barrage-state-text { display: block; margin-top: 2px; color: #9AA3B2; font-size: 9px; }
-.barrage-item { position: absolute; z-index: 13; height: 23px; padding: 0 10px; border-radius: 12px; background-color: #DDF0FF; border: 1px solid rgba(111, 183, 255, 0.66); box-shadow: 0 3px 8px rgba(22, 119, 242, 0.16); flex-direction: row; align-items: center; justify-content: center; animation-name: barrageSlide; animation-timing-function: linear; animation-iteration-count: 1; animation-fill-mode: forwards; }
+.barrage-item { position: absolute; z-index: 13; height: 23px; padding: 0 10px; border-radius: 12px; background-color: #DDF0FF; border: 1px solid rgba(111, 183, 255, 0.66); box-shadow: 0 3px 8px rgba(22, 119, 242, 0.16); flex-direction: row; align-items: center; justify-content: center; opacity: 0.92; }
 .barrage-text { height: 22px; line-height: 22px; font-size: 12px; font-weight: 800; white-space: nowrap; }
 .barrage-color-row { height: 28px; margin-top: 5px; flex-direction: row; align-items: center; }
 .barrage-color-dot { width: 19px; height: 19px; margin-right: 8px; border-radius: 10px; border: 2px solid #FFFFFF; box-shadow: 0 2px 6px rgba(15,23,42,0.12); }
@@ -1052,10 +1117,6 @@ export default {
 .barrage-send { width: 70px; height: 36px; margin-left: 8px; border-radius: 18px; background-color: #1677F2; align-items: center; justify-content: center; }
 .barrage-send-disabled { opacity: 0.58; }
 .barrage-send-text { color: #FFFFFF; font-size: 12px; font-weight: 800; }
-@keyframes barrageSlide {
-  from { transform: translateX(0); }
-  to { transform: translateX(820px); }
-}
 .range-tabs { margin-top: 7px; height: 34px; flex-direction: row; align-items: center; background-color: #F5F7FA; border-radius: 6px; }
 .range-tab { flex: 1; height: 28px; margin: 3px; align-items: center; justify-content: center; border-radius: 5px; }
 .active-range { background-color: #FFFFFF; }
@@ -1160,5 +1221,6 @@ export default {
 .dark-page .alert-input-active { border-color: #2F5F98; }
 .dark-page .alert-input { color: #F9FAFB; }
 </style>
+
 
 

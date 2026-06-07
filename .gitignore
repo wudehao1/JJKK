@@ -1,0 +1,32 @@
+﻿# Build output
+unpackage/
+dist/
+build/
+
+# IDE
+.hbuilderx/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node
+node_modules/
+package-lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Private config
+project.private.config.json

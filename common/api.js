@@ -1,7 +1,7 @@
-export const API_BASE_URL = 'http://192.168.31.98:8080/api'
-export const WS_URL = 'ws://192.168.31.98:8080/api/ws/funds'
-// export const API_BASE_URL = 'http://10.199.118.191:8080/api'
-// export const WS_URL = 'ws://10.199.118.191:8080/api/ws/funds'
+// export const API_BASE_URL = 'http://192.168.31.98:8080/api'
+// export const WS_URL = 'ws://192.168.31.98:8080/api/ws/funds'
+export const API_BASE_URL = 'http://10.199.118.191:8080/api'
+export const WS_URL = 'ws://10.199.118.191:8080/api/ws/funds'
 const USER_ID_KEY = 'jk_user_id'
 const AUTH_TOKEN_KEY = 'jk_auth_token'
 
