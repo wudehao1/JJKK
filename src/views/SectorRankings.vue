@@ -75,23 +75,23 @@ function goFund(code: string) { router.push('/fund/' + code) }
 .tab-btn.active { background: var(--color-primary); color: #fff; }
 .loading { text-align: center; padding: 40px; color: var(--color-text-tertiary); }
 
-.panel { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: 0 1px 3px var(--color-shadow); overflow: hidden; }
+.panel { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: 0 2px 8px var(--color-shadow); overflow: hidden; }
 .data-table { width: 100%; border-collapse: collapse; }
 .data-table th { padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 600; color: var(--color-text-tertiary); border-bottom: 1px solid var(--color-divider); text-transform: uppercase; letter-spacing: 0.3px; }
 .data-table td { padding: 10px 12px; border-bottom: 1px solid var(--color-divider); font-size: 13px; }
 .data-table tr { transition: background 0.1s; }
-.data-table tr:hover { background: var(--color-bg-hover); }
+.data-table tr:hover { background: var(--color-primary-light); }
 .data-table tr:last-child td { border-bottom: none; }
 .col-no { width: 40px; text-align: center; }
 .col-name { font-weight: 600; color: var(--color-text-primary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .col-code { color: var(--color-text-tertiary); font-size: 12px; }
 .col-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-.col-sm { font-size: 12px; color: var(--color-text-tertiary); }
+.col-sm { font-size: 12px; color: var(--color-text-tertiary); } .col-bar { width: 100px; } .pct-bar { height: 6px; border-radius: 3px; transition: width 0.3s; } .pct-bar.up { background: linear-gradient(90deg, var(--color-up), #F87171); } .pct-bar.down { background: linear-gradient(90deg, var(--color-down), #86EFAC); } .pct-bar.flat { background: var(--color-bg-secondary); }
 td.up { color: var(--color-up); }
 td.down { color: var(--color-down); }
 td.flat { color: var(--color-text-secondary); }
 .rank-badge { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 4px; font-size: 11px; font-weight: 800; background: var(--color-bg-secondary); color: var(--color-text-tertiary); }
-.rank-badge.top { background: #FEF3C7; color: #B45309; }
+.rank-badge.top { background: linear-gradient(135deg, #FEF3C7, #FDE68A); color: #B45309; box-shadow: 0 1px 3px rgba(180,83,9,0.15); }
 .type-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
 .type-tag.est { background: var(--color-primary-light); color: var(--color-primary); }
 .type-tag.off { background: var(--color-bg-secondary); color: var(--color-text-tertiary); }

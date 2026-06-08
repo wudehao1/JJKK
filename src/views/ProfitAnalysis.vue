@@ -50,14 +50,14 @@ onMounted(load)
       <div class="profit-summary" v-if="data">
         <div class="profit-item">
           <div class="profit-label">累计收益</div>
-          <div class="profit-value" :class="(data.totalProfit || 0) >= 0 ? 'up' : 'down'">
-            {{ data.totalProfit?.toFixed(2) || '0.00' }}
+          <div class="profit-value" :class="(data.summary?.profitAmount || 0) >= 0 ? 'up' : 'down'">
+            {{ data.summary?.profitAmount?.toFixed(2) || '0.00' }}
           </div>
         </div>
         <div class="profit-item">
           <div class="profit-label">收益率</div>
-          <div class="profit-value" :class="(data.totalProfitPct || 0) >= 0 ? 'up' : 'down'">
-            {{ (data.totalProfitPct > 0 ? '+' : '') + (data.totalProfitPct?.toFixed(2) || '0.00') }}%
+          <div class="profit-value" :class="(data.summary?.returnPct || 0) >= 0 ? 'up' : 'down'">
+            {{ (data.summary?.returnPct > 0 ? '+' : '') + (data.summary?.returnPct?.toFixed(2) || '0.00') }}%
           </div>
         </div>
       </div>
@@ -70,10 +70,10 @@ onMounted(load)
         </div>
         <div class="chart-area">
           <LineChart
-            v-if="data?.dailyData?.length"
-            :points="data.dailyData.map((d: any) => ({ date: d.date, value: d.profit }))"
+            v-if="data?.trend?.length"
+            :points="data.trend.map((d: any) => ({ date: d.date || d.key, value: d.profitAmount || 0 }))"
             :height="280"
-            :color="(data.totalProfit || 0) >= 0 ? '#16A34A' : '#DC2626'"
+            :color="(data.summary?.profitAmount || 0) >= 0 ? '#16A34A' : '#DC2626'"
           />
           <div v-else class="empty-state">暂无数据</div>
         </div>

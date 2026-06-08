@@ -24,8 +24,8 @@ const ranges = [{key:'1w',label:'1周'},{key:'1m',label:'1月'},{key:'3m',label:
 async function load() {
   loading.value = true
   try {
-    const [d, h] = await Promise.all([getFundDetail(fundCode.value), getFundHistory(fundCode.value, currentRange.value)])
-    detail.value = d; if (Array.isArray(h)) chartPoints.value = h.map((p:any) => ({date:p.date, value:p.nav||p.unitNav||0}))
+    const [d, h]: any[] = await Promise.all([getFundDetail(fundCode.value), getFundHistory(fundCode.value, currentRange.value)])
+    detail.value = d; const pts = Array.isArray(h) ? h : h?.points || []; chartPoints.value = pts.map((p:any) => ({date:p.navDate||p.date, value:p.unitNav||p.nav||0}))
   } catch {} finally { loading.value = false }
 }
 async function loadBullets() { try { bullets.value = (await getFundBullets(fundCode.value))?.items || [] } catch {} }

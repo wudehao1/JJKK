@@ -22,15 +22,13 @@ async function load() {
   loading.value = true
   try {
     if (currentRange.value === 'today') {
-      const data = await getMarketMinute(symbol.value)
-      if (Array.isArray(data)) {
-        points.value = data.map((p: any) => ({ date: p.time || p.date, value: p.price || p.value || 0 }))
-      }
+      const data: any = await getMarketMinute(symbol.value)
+      const pts = Array.isArray(data) ? data : data?.points || []
+        points.value = pts.map((p: any) => ({ date: p.quoteTime || p.time || p.date, value: p.price || p.close || p.value || 0 }))
     } else {
-      const data = await getMarketHistory(symbol.value, currentRange.value)
-      if (Array.isArray(data)) {
-        points.value = data.map((p: any) => ({ date: p.date, value: p.close || p.nav || p.value || 0 }))
-      }
+      const data: any = await getMarketHistory(symbol.value, currentRange.value)
+      const pts = Array.isArray(data) ? data : data?.points || []
+        points.value = pts.map((p: any) => ({ date: p.tradingDay || p.date, value: p.closePrice || p.close || p.nav || p.value || 0 }))
     }
   } catch { /* silent */ } finally {
     loading.value = false

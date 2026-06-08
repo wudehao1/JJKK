@@ -88,23 +88,23 @@ function goSectorRankings() { router.push('/sector-rankings') }
 <style scoped>
 .index-row { display: flex; gap: 12px; margin-bottom: 16px; }
 .index-card {
-  flex: 1; padding: 14px 16px; border-radius: var(--radius-lg);
-  background: var(--color-bg-card); box-shadow: 0 1px 3px var(--color-shadow);
-  cursor: pointer; transition: box-shadow 0.15s;
+  flex: 1; padding: 16px 18px; border-radius: var(--radius-lg);
+  background: var(--color-bg-card); box-shadow: 0 2px 8px var(--color-shadow);
+  cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden;
 }
-.index-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-.index-card.up { border-left: 3px solid var(--color-up); }
-.index-card.down { border-left: 3px solid var(--color-down); }
+.index-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
+.index-card.up { border-left: 3px solid var(--color-up); background: linear-gradient(135deg, var(--color-bg-card) 70%, var(--color-up-bg) 100%); }
+.index-card.down { border-left: 3px solid var(--color-down); background: linear-gradient(135deg, var(--color-bg-card) 70%, var(--color-down-bg) 100%); }
 .index-card.flat { border-left: 3px solid var(--color-border); }
 .idx-name { font-size: 12px; color: var(--color-text-tertiary); font-weight: 500; }
-.idx-price { font-size: 22px; font-weight: 800; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.idx-price { font-size: 24px; font-weight: 800; margin: 6px 0 3px; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
 .index-card.up .idx-price, .index-card.up .idx-change { color: var(--color-up); }
 .index-card.down .idx-price, .index-card.down .idx-change { color: var(--color-down); }
 .idx-change { font-size: 12px; font-weight: 600; display: flex; gap: 8px; font-variant-numeric: tabular-nums; }
 .breadth-card {
-  display: flex; align-items: center; gap: 16px; padding: 0 20px;
+  display: flex; align-items: center; gap: 20px; padding: 0 24px;
   border-radius: var(--radius-lg); background: var(--color-bg-card);
-  box-shadow: 0 1px 3px var(--color-shadow);
+  box-shadow: 0 2px 8px var(--color-shadow);
 }
 .br-item { display: flex; align-items: center; gap: 6px; }
 .br-dot { width: 6px; height: 6px; border-radius: 3px; }
@@ -117,7 +117,7 @@ function goSectorRankings() { router.push('/sector-rankings') }
 .br-sep { width: 1px; height: 24px; background: var(--color-border); }
 
 .main-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
-.panel { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: 0 1px 3px var(--color-shadow); overflow: hidden; }
+.panel { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: 0 2px 8px var(--color-shadow); overflow: hidden; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--color-divider); }
 .panel-title { font-size: 14px; font-weight: 700; color: var(--color-text-primary); }
 .panel-more { border: none; background: none; color: var(--color-text-tertiary); font-size: 12px; }
@@ -127,7 +127,7 @@ function goSectorRankings() { router.push('/sector-rankings') }
 .data-table th { padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 600; color: var(--color-text-tertiary); border-bottom: 1px solid var(--color-divider); text-transform: uppercase; letter-spacing: 0.3px; }
 .data-table td { padding: 10px 12px; border-bottom: 1px solid var(--color-divider); font-size: 13px; }
 .data-table tr { cursor: pointer; transition: background 0.1s; }
-.data-table tr:hover { background: var(--color-bg-hover); }
+.data-table tr:hover { background: var(--color-primary-light); }
 .data-table tr:last-child td { border-bottom: none; }
 .col-no { width: 40px; text-align: center; }
 .col-name { font-weight: 600; color: var(--color-text-primary); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -136,14 +136,14 @@ function goSectorRankings() { router.push('/sector-rankings') }
 td.up { color: var(--color-up); }
 td.down { color: var(--color-down); }
 td.flat { color: var(--color-text-secondary); }
-.rank-badge { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 4px; font-size: 11px; font-weight: 800; background: var(--color-bg-secondary); color: var(--color-text-tertiary); }
-.rank-badge.top { background: #FEF3C7; color: #B45309; }
+.rank-badge { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 6px; font-size: 11px; font-weight: 800; background: var(--color-bg-secondary); color: var(--color-text-tertiary); }
+.rank-badge.top { background: linear-gradient(135deg, #FEF3C7, #FDE68A); color: #B45309; box-shadow: 0 1px 3px rgba(180,83,9,0.15); }
 
 .sector-list { padding: 4px 0; }
-.sector-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--color-divider); font-size: 13px; }
+.sector-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--color-divider); font-size: 13px; position: relative; }
 .sector-row:last-child { border-bottom: none; }
 .sector-name { color: var(--color-text-primary); font-weight: 500; }
-.sector-pct { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sector-pct { font-weight: 800; font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
 .sector-pct.up { color: var(--color-up); }
 .sector-pct.down { color: var(--color-down); }
 .sector-pct.flat { color: var(--color-text-secondary); }
