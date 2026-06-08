@@ -12,25 +12,14 @@ const tabs = [
   { path: '/me', label: '我的', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' }
 ]
 
-function isActive(path: string) {
-  return route.path === path
-}
-
-function navigate(path: string) {
-  router.push(path)
-}
+function isActive(path: string) { return route.path === path }
+function navigate(path: string) { router.push(path) }
 </script>
 
 <template>
   <nav class="bottom-nav">
-    <div
-      v-for="tab in tabs"
-      :key="tab.path"
-      class="nav-item"
-      :class="{ active: isActive(tab.path) }"
-      @click="navigate(tab.path)"
-    >
-      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <div v-for="tab in tabs" :key="tab.path" class="nav-item" :class="{ active: isActive(tab.path) }" @click="navigate(tab.path)">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
         <path :d="tab.icon" />
       </svg>
       <span class="nav-label">{{ tab.label }}</span>
@@ -40,29 +29,18 @@ function navigate(path: string) {
 
 <style scoped>
 .bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 56px;
-  background: var(--color-bg-card);
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: 52px; background: var(--color-bg-card);
   border-top: 1px solid var(--color-border);
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  z-index: 100;
+  display: flex; align-items: center; justify-content: space-around;
+  z-index: 100; padding-bottom: env(safe-area-inset-bottom, 0);
 }
 .nav-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  cursor: pointer;
-  padding: 4px 10px;
-  color: var(--color-text-secondary);
-  transition: color 0.2s;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  cursor: pointer; padding: 4px 12px; color: var(--color-text-tertiary);
+  transition: color 0.2s; -webkit-tap-highlight-color: transparent;
 }
 .nav-item.active { color: var(--color-primary); }
-.nav-icon { width: 22px; height: 22px; }
-.nav-label { font-size: 11px; line-height: 1; }
+.nav-icon { width: 20px; height: 20px; }
+.nav-label { font-size: 10px; font-weight: 500; line-height: 1; }
 </style>

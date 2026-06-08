@@ -12,114 +12,87 @@ const loading = ref(true)
 
 onMounted(async () => {
   try {
-    const [s, f] = await Promise.all([getSectorRankings(20), getFundRankings(20)])
-    sectors.value = s || []
-    funds.value = f || []
-  } catch { /* silent */ } finally {
-    loading.value = false
-  }
+    const [s, f] = await Promise.all([getSectorRankings(30), getFundRankings(50)])
+    sectors.value = s || []; funds.value = f || []
+  } catch {} finally { loading.value = false }
 })
 
-function fmtPct(val: number) {
-  const sign = val > 0 ? '+' : ''
-  return sign + val.toFixed(2) + '%'
-}
-
-function pctClass(val: number) {
-  if (val > 0) return 'up'
-  if (val < 0) return 'down'
-  return 'flat'
-}
-
+function fmtPct(val: number | null | undefined) { if (val == null) return '--'; return (val > 0 ? '+' : '') + val.toFixed(2) + '%' }
+function pctCls(val: number | null | undefined) { if (val == null) return 'flat'; return val > 0 ? 'up' : val < 0 ? 'down' : 'flat' }
 function goFund(code: string) { router.push('/fund/' + code) }
-function goBack() { router.back() }
 </script>
 
 <template>
   <div class="page">
-    <div class="detail-header">
-      <button class="back-btn" @click="goBack">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5m7-7l-7 7 7 7"/></svg>
-      </button>
-      <div class="header-title">板块涨跌</div>
-    </div>
-
     <div class="tab-bar">
       <button class="tab-btn" :class="{ active: tab === 'sector' }" @click="tab = 'sector'">板块排行</button>
       <button class="tab-btn" :class="{ active: tab === 'fund' }" @click="tab = 'fund'">基金排行</button>
     </div>
 
-    <div v-if="loading" class="loading-state">加载中...</div>
+    <div v-if="loading" class="loading">加载中...</div>
 
     <template v-else>
-      <div v-if="tab === 'sector'" class="ranking-list">
-        <div v-for="(s, i) in sectors" :key="s.sectorCode" class="ranking-item">
-          <span class="rank-no" :class="i < 3 ? 'top' : ''">{{ i + 1 }}</span>
-          <span class="rank-name">{{ s.sectorName }}</span>
-          <span class="rank-return" :class="pctClass(s.avgReturnPct)">{{ fmtPct(s.avgReturnPct) }}</span>
-        </div>
+      <!-- Sector table -->
+      <div class="panel" v-if="tab === 'sector'">
+        <table class="data-table">
+          <thead><tr><th class="col-no">#</th><th class="col-name">板块名称</th><th class="col-num">最新价</th><th class="col-num">涨跌幅</th><th class="col-num">主力净流入</th></tr></thead>
+          <tbody>
+            <tr v-for="(s, i) in sectors" :key="s.code">
+              <td class="col-no"><span class="rank-badge" :class="i < 3 ? 'top' : ''">{{ i + 1 }}</span></td>
+              <td class="col-name">{{ s.name }}</td>
+              <td class="col-num">{{ s.latestValue?.toFixed(2) || '--' }}</td>
+              <td class="col-num" :class="pctCls(s.changePct)">{{ fmtPct(s.changePct) }}</td>
+              <td class="col-num" :class="s.mainNetInflow > 0 ? 'up' : s.mainNetInflow < 0 ? 'down' : 'flat'">{{ s.mainNetInflow != null ? (s.mainNetInflow / 100000000).toFixed(2) + '亿' : '--' }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <div v-else class="ranking-list">
-        <div v-for="(f, i) in funds" :key="f.fundCode" class="ranking-item clickable" @click="goFund(f.fundCode)">
-          <span class="rank-no" :class="i < 3 ? 'top' : ''">{{ i + 1 }}</span>
-          <div class="rank-info">
-            <div class="rank-name">{{ f.fundName }}</div>
-            <div class="rank-code">{{ f.fundCode }}</div>
-          </div>
-          <div class="rank-right">
-            <span class="rank-nav">{{ f.unitNav?.toFixed(4) || '--' }}</span>
-            <span class="rank-return" :class="pctClass(f.estimateReturnPct || 0)">{{ fmtPct(f.estimateReturnPct || 0) }}</span>
-          </div>
-        </div>
+      <!-- Fund table -->
+      <div class="panel" v-else>
+        <table class="data-table">
+          <thead><tr><th class="col-no">#</th><th class="col-name">基金名称</th><th class="col-code">代码</th><th class="col-sm">板块</th><th class="col-num">净值</th><th class="col-num">涨跌幅</th><th class="col-sm">数据</th></tr></thead>
+          <tbody>
+            <tr v-for="(f, i) in funds" :key="f.fundCode" @click="goFund(f.fundCode)">
+              <td class="col-no"><span class="rank-badge" :class="i < 3 ? 'top' : ''">{{ i + 1 }}</span></td>
+              <td class="col-name">{{ f.fundName }}</td>
+              <td class="col-code">{{ f.fundCode }}</td>
+              <td class="col-sm">{{ f.sectorName || '--' }}</td>
+              <td class="col-num">{{ f.latestUnitNav?.toFixed(4) || '--' }}</td>
+              <td class="col-num" :class="pctCls(f.returnPct)">{{ fmtPct(f.returnPct) }}</td>
+              <td class="col-sm"><span class="type-tag" :class="f.dataType === 'ESTIMATE' ? 'est' : 'off'">{{ f.dataType === 'ESTIMATE' ? '估算' : '官方' }}</span></td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </template>
   </div>
 </template>
 
 <style scoped>
-.detail-header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px; background: var(--color-bg-card);
-  border-bottom: 1px solid var(--color-border);
-}
-.back-btn {
-  width: 36px; height: 36px; border: none; border-radius: 8px;
-  background: transparent; color: var(--color-text-secondary);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-}
-.header-title { font-size: 17px; font-weight: 700; color: var(--color-text-primary); }
-.tab-bar {
-  display: flex; gap: 4px; padding: 8px 16px;
-}
-.tab-btn {
-  flex: 1; border: none; border-radius: 8px; padding: 8px 0;
-  background: var(--color-bg-secondary); color: var(--color-text-secondary);
-  font-size: 13px; font-weight: 600; cursor: pointer;
-}
+.tab-bar { display: flex; gap: 4px; margin-bottom: 12px; }
+.tab-btn { border: none; border-radius: var(--radius); padding: 8px 20px; background: var(--color-bg-secondary); color: var(--color-text-secondary); font-size: 13px; font-weight: 600; }
 .tab-btn.active { background: var(--color-primary); color: #fff; }
-.loading-state { text-align: center; padding: 40px; color: var(--color-text-secondary); }
-.ranking-list { background: var(--color-bg-card); margin: 0 16px; border-radius: 10px; overflow: hidden; }
-.ranking-item {
-  display: flex; align-items: center; padding: 12px 14px; gap: 10px;
-  border-bottom: 1px solid var(--color-border);
-}
-.ranking-item.clickable { cursor: pointer; }
-.ranking-item.clickable:hover { background: var(--color-bg-hover); }
-.ranking-item:last-child { border-bottom: none; }
-.rank-no {
-  width: 22px; height: 22px; border-radius: 6px; font-size: 12px; font-weight: 800;
-  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-  background: var(--color-bg-secondary); color: var(--color-text-secondary);
-}
-.rank-no.top { background: #FEF3C7; color: #D97706; }
-.rank-name { flex: 1; font-size: 14px; font-weight: 600; color: var(--color-text-primary); }
-.rank-code { font-size: 11px; color: var(--color-text-secondary); }
-.rank-return { font-size: 14px; font-weight: 700; }
-.rank-return.up { color: var(--color-up); }
-.rank-return.down { color: var(--color-down); }
-.rank-return.flat { color: var(--color-text-secondary); }
-.rank-info { flex: 1; min-width: 0; }
-.rank-right { text-align: right; }
-.rank-nav { font-size: 13px; color: var(--color-text-primary); display: block; }
+.loading { text-align: center; padding: 40px; color: var(--color-text-tertiary); }
+
+.panel { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: 0 1px 3px var(--color-shadow); overflow: hidden; }
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th { padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 600; color: var(--color-text-tertiary); border-bottom: 1px solid var(--color-divider); text-transform: uppercase; letter-spacing: 0.3px; }
+.data-table td { padding: 10px 12px; border-bottom: 1px solid var(--color-divider); font-size: 13px; }
+.data-table tr { transition: background 0.1s; }
+.data-table tr:hover { background: var(--color-bg-hover); }
+.data-table tr:last-child td { border-bottom: none; }
+.col-no { width: 40px; text-align: center; }
+.col-name { font-weight: 600; color: var(--color-text-primary); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-code { color: var(--color-text-tertiary); font-size: 12px; }
+.col-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.col-sm { font-size: 12px; color: var(--color-text-tertiary); }
+td.up { color: var(--color-up); }
+td.down { color: var(--color-down); }
+td.flat { color: var(--color-text-secondary); }
+.rank-badge { display: inline-block; width: 20px; height: 20px; line-height: 20px; text-align: center; border-radius: 4px; font-size: 11px; font-weight: 800; background: var(--color-bg-secondary); color: var(--color-text-tertiary); }
+.rank-badge.top { background: #FEF3C7; color: #B45309; }
+.type-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; }
+.type-tag.est { background: var(--color-primary-light); color: var(--color-primary); }
+.type-tag.off { background: var(--color-bg-secondary); color: var(--color-text-tertiary); }
 </style>

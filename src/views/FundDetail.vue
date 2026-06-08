@@ -6,327 +6,152 @@ import { listWatchlist, addWatchlist, deleteWatchlist, simulateHoldingTrade, get
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import LineChart from '@/components/LineChart.vue'
-import type { FundDetail as DetailType, BulletComment, AlertRule } from '@/types'
+import type { FundDetail as D, BulletComment, AlertRule } from '@/types'
 
-const route = useRoute()
-const router = useRouter()
-const auth = useAuthStore()
-const toast = useToast()
-
+const route = useRoute(); const router = useRouter(); const auth = useAuthStore(); const toast = useToast()
 const fundCode = computed(() => route.params.fundCode as string)
-const detail = ref<DetailType | null>(null)
+const detail = ref<D | null>(null)
 const chartPoints = ref<{ date: string; value: number }[]>([])
 const bullets = ref<BulletComment[]>([])
-const currentRange = ref('1m')
-const watchId = ref(0)
-const loading = ref(true)
-
-// Barrage
-const barrageInput = ref('')
-const barrageColor = ref('#1677F2')
-const barrageSending = ref(false)
-const barrageColors = ['#1677F2', '#D94252', '#18A875', '#F59E0B', '#8B5CF6', '#111827']
-
-// Trade popup
-const showTradePopup = ref(false)
-const tradeType = ref<'BUY' | 'SELL'>('BUY')
-const tradeAmount = ref('')
-const tradeShare = ref('')
-
-// Alert popup
-const showAlertPopup = ref(false)
-const alertRules = ref<AlertRule[]>([])
-const alertTypes = [
-  { type: 'ESTIMATE_RETURN', label: '估算涨跌幅', unit: '%' },
-  { type: 'OFFICIAL_RETURN', label: '官方涨跌幅', unit: '%' },
-  { type: 'NAV', label: '净值', unit: '' },
-  { type: 'PROFIT_LOSS', label: '盈亏金额', unit: '元' }
-]
-const alertSaving = ref(false)
-
-const ranges = [
-  { key: '1w', label: '近1周' },
-  { key: '1m', label: '近1月' },
-  { key: '3m', label: '近3月' },
-  { key: '6m', label: '近6月' },
-  { key: '1y', label: '近1年' },
-  { key: 'all', label: '全部' }
-]
+const currentRange = ref('1m'); const watchId = ref(0); const loading = ref(true)
+const barrageInput = ref(''); const barrageColor = ref('#2563EB'); const barrageSending = ref(false)
+const barrageColors = ['#2563EB','#E53E3E','#16A34A','#D97706','#7C3AED','#0F172A']
+const showTrade = ref(false); const tradeType = ref<'BUY'|'SELL'>('BUY'); const tradeAmt = ref(''); const tradeShare = ref('')
+const showAlert = ref(false); const alertRules = ref<AlertRule[]>([]); const alertSaving = ref(false)
+const alertTypes = [{type:'ESTIMATE_RETURN',label:'估算涨跌'},{type:'OFFICIAL_RETURN',label:'官方涨跌'},{type:'NAV',label:'净值'},{type:'PROFIT_LOSS',label:'盈亏'}]
+const ranges = [{key:'1w',label:'1周'},{key:'1m',label:'1月'},{key:'3m',label:'3月'},{key:'6m',label:'6月'},{key:'1y',label:'1年'},{key:'all',label:'全部'}]
 
 async function load() {
   loading.value = true
   try {
-    const [d, hist] = await Promise.all([
-      getFundDetail(fundCode.value),
-      getFundHistory(fundCode.value, currentRange.value)
-    ])
-    detail.value = d
-    if (Array.isArray(hist)) {
-      chartPoints.value = hist.map((p: any) => ({ date: p.date, value: p.nav || p.unitNav || 0 }))
-    }
-  } catch { /* silent */ } finally {
-    loading.value = false
-  }
+    const [d, h] = await Promise.all([getFundDetail(fundCode.value), getFundHistory(fundCode.value, currentRange.value)])
+    detail.value = d; if (Array.isArray(h)) chartPoints.value = h.map((p:any) => ({date:p.date, value:p.nav||p.unitNav||0}))
+  } catch {} finally { loading.value = false }
 }
-
-async function loadBullets() {
-  try {
-    const data = await getFundBullets(fundCode.value)
-    bullets.value = data?.items || []
-  } catch { /* silent */ }
-}
-
-async function checkWatch() {
-  if (!auth.isLoggedIn) return
-  try {
-    const list = await listWatchlist(auth.userId)
-    const found = (list || []).find((w: any) => w.fundCode === fundCode.value)
-    watchId.value = found?.id || 0
-  } catch { /* silent */ }
-}
-
+async function loadBullets() { try { bullets.value = (await getFundBullets(fundCode.value))?.items || [] } catch {} }
+async function checkWatch() { if (!auth.isLoggedIn) return; try { watchId.value = ((await listWatchlist(auth.userId))||[]).find((w:any)=>w.fundCode===fundCode.value)?.id||0 } catch {} }
 async function toggleWatch() {
   if (!auth.isLoggedIn) { router.push('/login'); return }
-  if (watchId.value) {
-    await deleteWatchlist(auth.userId, watchId.value)
-    watchId.value = 0
-    toast.success('已移除自选')
-  } else {
-    await addWatchlist(auth.userId, { fundCode: fundCode.value })
-    await checkWatch()
-    toast.success('已添加自选')
-  }
+  if (watchId.value) { await deleteWatchlist(auth.userId, watchId.value); watchId.value = 0; toast.success('已移除') }
+  else { await addWatchlist(auth.userId, {fundCode:fundCode.value}); await checkWatch(); toast.success('已添加') }
 }
-
-async function doSendBarrage() {
-  const content = barrageInput.value.trim()
-  if (!content) { toast.info('先写点弹幕内容'); return }
-  if (content.length > 60) { toast.info('弹幕最多60个字'); return }
+async function doBarrage() {
+  const c = barrageInput.value.trim(); if (!c) return; if (c.length > 60) { toast.info('最多60字'); return }
   barrageSending.value = true
-  try {
-    const data = await sendFundBullet(fundCode.value, { content, color: barrageColor.value })
-    barrageInput.value = ''
-    bullets.value = data?.items || bullets.value
-    toast.success('弹幕发送成功')
-  } catch { /* silent */ } finally {
-    barrageSending.value = false
-  }
+  try { barrageInput.value=''; bullets.value = (await sendFundBullet(fundCode.value,{content:c,color:barrageColor.value}))?.items||bullets.value; toast.success('已发送') } catch {} finally { barrageSending.value = false }
 }
-
-// Trade
-function openTrade(type: 'BUY' | 'SELL') {
-  tradeType.value = type
-  tradeAmount.value = ''
-  tradeShare.value = ''
-  showTradePopup.value = true
-}
-
+function openTrade(t:'BUY'|'SELL') { tradeType.value=t; tradeAmt.value=''; tradeShare.value=''; showTrade.value=true }
 async function doTrade() {
   if (!auth.isLoggedIn) { router.push('/login'); return }
-  const amount = Number(tradeAmount.value)
-  const share = Number(tradeShare.value)
-  if (!amount && !share) { toast.info('请输入金额或份额'); return }
-  try {
-    await simulateHoldingTrade(auth.userId, {
-      fundCode: fundCode.value,
-      txnType: tradeType.value,
-      amount: amount || undefined,
-      share: share || undefined
-    })
-    showTradePopup.value = false
-    toast.success(tradeType.value === 'BUY' ? '买入模拟成功' : '卖出模拟成功')
-  } catch { /* silent */ }
+  const a=Number(tradeAmt.value), s=Number(tradeShare.value); if (!a && !s) { toast.info('请输入金额或份额'); return }
+  try { await simulateHoldingTrade(auth.userId,{fundCode:fundCode.value,txnType:tradeType.value,amount:a||undefined,share:s||undefined}); showTrade.value=false; toast.success(tradeType.value==='BUY'?'买入成功':'卖出成功') } catch {}
 }
-
-// Alerts
-async function openAlerts() {
-  if (!auth.isLoggedIn) { router.push('/login'); return }
-  try {
-    alertRules.value = await getFundAlertSettings(auth.userId, fundCode.value) || []
-  } catch {
-    alertRules.value = []
-  }
-  showAlertPopup.value = true
-}
-
-function addAlertRule() {
-  alertRules.value.push({
-    id: 0, fundCode: fundCode.value, ruleType: 'ESTIMATE_RETURN',
-    compareOp: 'GTE', thresholdValue: 0, enabled: true, remindMode: 'IMMEDIATE'
-  })
-}
-
-function removeAlertRule(index: number) {
-  alertRules.value.splice(index, 1)
-}
-
-async function saveAlerts() {
-  alertSaving.value = true
-  try {
-    await saveFundAlertSettings(auth.userId, fundCode.value, alertRules.value)
-    showAlertPopup.value = false
-    toast.success('提醒设置已保存')
-  } catch { /* silent */ } finally {
-    alertSaving.value = false
-  }
-}
-
-function changeRange(key: string) {
-  currentRange.value = key
-  load()
-}
-
-function goBack() { router.back() }
-
-const returnClass = computed(() => {
-  const val = detail.value?.dailyReturnPct || 0
-  if (val > 0) return 'up'
-  if (val < 0) return 'down'
-  return 'flat'
-})
-
+async function openAlerts() { if (!auth.isLoggedIn){router.push('/login');return} try{alertRules.value=await getFundAlertSettings(auth.userId,fundCode.value)||[]}catch{alertRules.value=[]} showAlert.value=true }
+function addRule() { alertRules.value.push({id:0,fundCode:fundCode.value,ruleType:'ESTIMATE_RETURN',compareOp:'GTE',thresholdValue:0,enabled:true,remindMode:'IMMEDIATE'}) }
+function rmRule(i:number) { alertRules.value.splice(i,1) }
+async function saveAlerts() { alertSaving.value=true; try{await saveFundAlertSettings(auth.userId,fundCode.value,alertRules.value);showAlert.value=false;toast.success('已保存')}catch{}finally{alertSaving.value=false} }
+function changeRange(k:string) { currentRange.value=k; load() }
+const retCls = computed(() => { const v=detail.value?.dailyReturnPct||0; return v>0?'up':v<0?'down':'flat' })
 onMounted(() => { load(); loadBullets(); checkWatch() })
 </script>
 
 <template>
-  <div class="page detail-page">
-    <!-- Header -->
-    <div class="detail-header">
-      <button class="back-btn" @click="goBack">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5m7-7l-7 7 7 7"/></svg>
-      </button>
-      <div class="header-info">
-        <div class="header-name">{{ detail?.fundName || fundCode }}</div>
-        <div class="header-code">{{ fundCode }}</div>
-      </div>
-      <button class="watch-btn" :class="{ watched: watchId }" @click="toggleWatch">
-        {{ watchId ? '已自选' : '+ 自选' }}
-      </button>
-    </div>
-
-    <div v-if="loading" class="loading-state">加载中...</div>
-
+  <div class="page">
+    <div v-if="loading" class="skel-full"></div>
     <template v-else-if="detail">
-      <!-- Price -->
-      <div class="price-section">
-        <div class="price-nav" :class="returnClass">{{ detail.unitNav?.toFixed(4) || '--' }}</div>
-        <div class="price-meta">
-          <span :class="returnClass">
-            {{ (detail.dailyReturnPct > 0 ? '+' : '') + (detail.dailyReturnPct?.toFixed(2) || '0.00') }}%
+      <!-- Breadcrumb -->
+      <div class="breadcrumb">
+        <span class="bc-link" @click="router.push('/')">首页</span>
+        <span class="bc-sep">/</span>
+        <span>{{ detail.fundName }}</span>
+        <button class="watch-btn" :class="{on:watchId}" @click="toggleWatch">{{ watchId ? '已自选' : '+ 自选' }}</button>
+      </div>
+
+      <!-- Price header -->
+      <div class="price-header">
+        <div class="ph-main">
+          <span class="ph-val" :class="retCls">{{ detail.unitNav?.toFixed(4) || '--' }}</span>
+          <span class="ph-pct" :class="retCls">{{ (detail.dailyReturnPct>0?'+':'')+(detail.dailyReturnPct?.toFixed(2)||'0.00') }}%</span>
+        </div>
+        <div class="ph-sub">
+          {{ detail.navDate }}
+          <span v-if="detail.estimateReturnPct!=null" class="ph-est" :class="(detail.estimateReturnPct||0)>0?'up':(detail.estimateReturnPct||0)<0?'down':'flat'">
+            估算 {{ detail.estimateNav?.toFixed(4) }} ({{ (detail.estimateReturnPct>0?'+':'')+detail.estimateReturnPct.toFixed(2) }}%)
           </span>
-          <span class="price-date">{{ detail.navDate }}</span>
-        </div>
-        <div class="estimate-row" v-if="detail.estimateReturnPct != null">
-          <span class="estimate-label">实时估算</span>
-          <span class="estimate-val" :class="(detail.estimateReturnPct || 0) > 0 ? 'up' : (detail.estimateReturnPct || 0) < 0 ? 'down' : 'flat'">
-            {{ detail.estimateNav?.toFixed(4) || '--' }}
-            ({{ (detail.estimateReturnPct > 0 ? '+' : '') + detail.estimateReturnPct.toFixed(2) }}%)
-          </span>
         </div>
       </div>
 
-      <!-- Chart -->
-      <div class="chart-section">
-        <div class="range-tabs">
-          <button v-for="r in ranges" :key="r.key" class="range-tab" :class="{ active: currentRange === r.key }" @click="changeRange(r.key)">{{ r.label }}</button>
-        </div>
-        <LineChart :points="chartPoints" :height="200" />
-      </div>
-
-      <!-- Actions -->
-      <div class="action-bar">
-        <button class="action-btn buy" @click="openTrade('BUY')">模拟买入</button>
-        <button class="action-btn sell" @click="openTrade('SELL')">模拟卖出</button>
-        <button class="action-btn alert" @click="openAlerts">提醒设置</button>
-      </div>
-
-      <!-- Info -->
-      <div class="info-section">
-        <div class="section-title">基金信息</div>
-        <div class="info-grid">
-          <div class="info-item"><span class="info-label">基金类型</span><span>{{ detail.fundType }}</span></div>
-          <div class="info-item"><span class="info-label">基金公司</span><span>{{ detail.companyName }}</span></div>
-          <div class="info-item"><span class="info-label">基金经理</span><span>{{ detail.managerName }}</span></div>
-          <div class="info-item"><span class="info-label">风险等级</span><span>{{ detail.riskLevel }}</span></div>
-          <div class="info-item"><span class="info-label">成立日期</span><span>{{ detail.inceptionDate }}</span></div>
-          <div class="info-item"><span class="info-label">累计净值</span><span>{{ detail.accumulatedNav?.toFixed(4) || '--' }}</span></div>
-        </div>
-      </div>
-
-      <!-- Bullets -->
-      <div class="bullet-section">
-        <div class="section-title">弹幕 ({{ bullets.length }})</div>
-        <!-- Send -->
-        <div class="barrage-send-row">
-          <input v-model="barrageInput" class="barrage-input" placeholder="发一条弹幕..." maxlength="60" @keyup.enter="doSendBarrage" />
-          <div class="barrage-colors">
-            <span v-for="c in barrageColors" :key="c" class="color-dot" :class="{ active: barrageColor === c }" :style="'background:' + c" @click="barrageColor = c"></span>
+      <!-- Two-column layout -->
+      <div class="detail-grid">
+        <!-- Left: chart + barrage -->
+        <div class="detail-left">
+          <div class="panel">
+            <div class="panel-head">
+              <div class="range-bar">
+                <button v-for="r in ranges" :key="r.key" class="range-btn" :class="{active:currentRange===r.key}" @click="changeRange(r.key)">{{ r.label }}</button>
+              </div>
+            </div>
+            <div class="chart-area"><LineChart :points="chartPoints" :height="280" /></div>
           </div>
-          <button class="send-btn" :class="{ disabled: barrageSending }" :disabled="barrageSending" @click="doSendBarrage">
-            {{ barrageSending ? '...' : '发送' }}
-          </button>
-        </div>
-        <!-- List -->
-        <div class="bullet-list" v-if="bullets.length">
-          <div v-for="b in bullets" :key="b.id" class="bullet-item">
-            <span class="bullet-dot" :style="'background:' + b.color"></span>
-            <span class="bullet-text">{{ b.content }}</span>
+          <!-- Actions -->
+          <div class="action-bar">
+            <button class="act buy" @click="openTrade('BUY')">模拟买入</button>
+            <button class="act sell" @click="openTrade('SELL')">模拟卖出</button>
+            <button class="act alert" @click="openAlerts">提醒设置</button>
+          </div>
+          <!-- Bullets -->
+          <div class="panel">
+            <div class="panel-head"><span class="panel-title">弹幕</span><span class="panel-count">{{ bullets.length }}</span></div>
+            <div class="barrage-form">
+              <input v-model="barrageInput" class="bi" placeholder="发一条弹幕..." maxlength="60" @keyup.enter="doBarrage" />
+              <div class="bdots"><span v-for="c in barrageColors" :key="c" class="bdot" :class="{active:barrageColor===c}" :style="'background:'+c" @click="barrageColor=c"></span></div>
+              <button class="bsend" :disabled="barrageSending" @click="doBarrage">{{ barrageSending?'...':'发送' }}</button>
+            </div>
+            <div class="bullet-list" v-if="bullets.length">
+              <div v-for="b in bullets" :key="b.id" class="brow"><span class="bd" :style="'background:'+b.color"></span><span class="bt">{{ b.content }}</span></div>
+            </div>
+            <div v-else class="empty-hint">暂无弹幕</div>
           </div>
         </div>
-        <div v-else class="empty-hint">暂无弹幕</div>
+
+        <!-- Right: info -->
+        <div class="detail-right">
+          <div class="panel">
+            <div class="panel-head"><span class="panel-title">基金信息</span></div>
+            <div class="info-grid">
+              <div class="ig"><span class="ik">基金代码</span><span class="iv">{{ fundCode }}</span></div>
+              <div class="ig"><span class="ik">基金类型</span><span class="iv">{{ detail.fundType }}</span></div>
+              <div class="ig"><span class="ik">基金公司</span><span class="iv">{{ detail.companyName }}</span></div>
+              <div class="ig"><span class="ik">基金经理</span><span class="iv">{{ detail.managerName }}</span></div>
+              <div class="ig"><span class="ik">风险等级</span><span class="iv">{{ detail.riskLevel }}</span></div>
+              <div class="ig"><span class="ik">成立日期</span><span class="iv">{{ detail.inceptionDate }}</span></div>
+              <div class="ig"><span class="ik">单位净值</span><span class="iv">{{ detail.unitNav?.toFixed(4) || '--' }}</span></div>
+              <div class="ig"><span class="ik">累计净值</span><span class="iv">{{ detail.accumulatedNav?.toFixed(4) || '--' }}</span></div>
+              <div class="ig"><span class="ik">业绩基准</span><span class="iv">{{ detail.benchmark || '--' }}</span></div>
+            </div>
+          </div>
+        </div>
       </div>
     </template>
 
     <!-- Trade popup -->
     <Teleport to="body">
-      <div v-if="showTradePopup" class="popup-mask" @click.self="showTradePopup = false">
-        <div class="popup-panel">
-          <div class="popup-head">
-            <span class="popup-title">{{ tradeType === 'BUY' ? '模拟买入' : '模拟卖出' }}</span>
-            <button class="popup-close" @click="showTradePopup = false">&times;</button>
-          </div>
-          <div class="popup-body">
-            <div class="form-row">
-              <label>金额（元）</label>
-              <input v-model="tradeAmount" type="number" class="form-input" placeholder="例如 1000" />
-            </div>
-            <div class="form-row">
-              <label>份额</label>
-              <input v-model="tradeShare" type="number" class="form-input" placeholder="例如 500" />
-            </div>
-          </div>
-          <button class="popup-confirm" @click="doTrade">确认{{ tradeType === 'BUY' ? '买入' : '卖出' }}</button>
+      <div v-if="showTrade" class="mask" @click.self="showTrade=false">
+        <div class="popup"><div class="ph"><span class="pt">{{ tradeType==='BUY'?'模拟买入':'模拟卖出' }}</span><button class="px" @click="showTrade=false">&times;</button></div>
+          <div class="pb"><label class="fl">金额（元）</label><input v-model="tradeAmt" type="number" class="fi" placeholder="例如 1000" /><label class="fl">份额</label><input v-model="tradeShare" type="number" class="fi" placeholder="例如 500" /></div>
+          <button class="pc" @click="doTrade">确认{{ tradeType==='BUY'?'买入':'卖出' }}</button>
         </div>
       </div>
     </Teleport>
-
     <!-- Alert popup -->
     <Teleport to="body">
-      <div v-if="showAlertPopup" class="popup-mask" @click.self="showAlertPopup = false">
-        <div class="popup-panel alert-panel">
-          <div class="popup-head">
-            <span class="popup-title">提醒设置</span>
-            <button class="popup-close" @click="showAlertPopup = false">&times;</button>
+      <div v-if="showAlert" class="mask" @click.self="showAlert=false">
+        <div class="popup"><div class="ph"><span class="pt">提醒设置</span><button class="px" @click="showAlert=false">&times;</button></div>
+          <div class="pb">
+            <div v-for="(r,i) in alertRules" :key="i" class="ar"><select v-model="r.ruleType" class="fs"><option v-for="t in alertTypes" :key="t.type" :value="t.type">{{ t.label }}</option></select><select v-model="r.compareOp" class="fs sm"><option value="GT">></option><option value="GTE">>=</option><option value="LT"><</option><option value="LTE"><=</option></select><input v-model.number="r.thresholdValue" type="number" class="fi sm" /><button class="db" @click="rmRule(i)">&times;</button></div>
+            <button class="ab" @click="addRule">+ 添加规则</button>
           </div>
-          <div class="popup-body">
-            <div v-for="(rule, i) in alertRules" :key="i" class="alert-rule">
-              <select v-model="rule.ruleType" class="form-select">
-                <option v-for="t in alertTypes" :key="t.type" :value="t.type">{{ t.label }}</option>
-              </select>
-              <select v-model="rule.compareOp" class="form-select small">
-                <option value="GT">大于</option>
-                <option value="GTE">大于等于</option>
-                <option value="LT">小于</option>
-                <option value="LTE">小于等于</option>
-              </select>
-              <input v-model.number="rule.thresholdValue" type="number" class="form-input small" />
-              <button class="remove-btn" @click="removeAlertRule(i)">&times;</button>
-            </div>
-            <button class="add-rule-btn" @click="addAlertRule">+ 添加规则</button>
-          </div>
-          <button class="popup-confirm" :disabled="alertSaving" @click="saveAlerts">
-            {{ alertSaving ? '保存中...' : '保存' }}
-          </button>
+          <button class="pc" :disabled="alertSaving" @click="saveAlerts">{{ alertSaving?'...':'保存' }}</button>
         </div>
       </div>
     </Teleport>
@@ -334,154 +159,79 @@ onMounted(() => { load(); loadBullets(); checkWatch() })
 </template>
 
 <style scoped>
-.detail-page { padding-bottom: 20px; }
-.detail-header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px; background: var(--color-bg-card);
-  border-bottom: 1px solid var(--color-border);
-}
-.back-btn {
-  width: 36px; height: 36px; border: none; border-radius: 8px;
-  background: transparent; color: var(--color-text-secondary);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-}
-.header-info { flex: 1; }
-.header-name { font-size: 16px; font-weight: 700; color: var(--color-text-primary); }
-.header-code { font-size: 12px; color: var(--color-text-secondary); }
-.watch-btn {
-  border: none; border-radius: 16px; padding: 6px 16px;
-  background: var(--color-primary); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
-}
-.watch-btn.watched { background: var(--color-bg-secondary); color: var(--color-text-secondary); }
-.loading-state { text-align: center; padding: 40px; color: var(--color-text-secondary); }
+.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-tertiary); margin-bottom: 12px; }
+.bc-link { cursor: pointer; color: var(--color-primary); }
+.bc-sep { color: var(--color-border); }
+.watch-btn { margin-left: auto; border: none; border-radius: 4px; padding: 4px 12px; font-size: 12px; font-weight: 600; background: var(--color-primary); color: #fff; }
+.watch-btn.on { background: var(--color-bg-secondary); color: var(--color-text-secondary); }
 
-.price-section { padding: 16px; }
-.price-nav { font-size: 32px; font-weight: 800; }
-.price-nav.up { color: var(--color-up); }
-.price-nav.down { color: var(--color-down); }
-.price-nav.flat { color: var(--color-text-primary); }
-.price-meta { display: flex; align-items: center; gap: 8px; margin-top: 4px; font-size: 14px; font-weight: 600; }
-.price-meta .up { color: var(--color-up); }
-.price-meta .down { color: var(--color-down); }
-.price-date { color: var(--color-text-secondary); font-weight: 400; font-size: 12px; }
-.estimate-row { margin-top: 6px; font-size: 13px; }
-.estimate-label { color: var(--color-text-secondary); margin-right: 6px; }
-.estimate-val.up { color: var(--color-up); }
-.estimate-val.down { color: var(--color-down); }
+.price-header { margin-bottom: 16px; }
+.ph-main { display: flex; align-items: baseline; gap: 10px; }
+.ph-val { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ph-pct { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ph-val.up, .ph-pct.up { color: var(--color-up); }
+.ph-val.down, .ph-pct.down { color: var(--color-down); }
+.ph-val.flat { color: var(--color-text-primary); }
+.ph-sub { font-size: 12px; color: var(--color-text-tertiary); margin-top: 2px; }
+.ph-est.up { color: var(--color-up); } .ph-est.down { color: var(--color-down); }
 
-.chart-section { padding: 0 16px; }
-.range-tabs {
-  display: flex; gap: 4px; padding: 4px; margin-bottom: 8px;
-  background: var(--color-bg-secondary); border-radius: 8px;
-}
-.range-tab {
-  flex: 1; border: none; border-radius: 6px; padding: 6px 0;
-  background: transparent; color: var(--color-text-secondary);
-  font-size: 12px; cursor: pointer;
-}
-.range-tab.active { background: var(--color-bg-card); color: var(--color-primary); font-weight: 600; }
+.detail-grid { display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
+.detail-left, .detail-right { display: flex; flex-direction: column; gap: 12px; }
 
-.action-bar {
-  display: flex; gap: 8px; padding: 12px 16px;
-}
-.action-btn {
-  flex: 1; border: none; border-radius: 8px; padding: 10px 0;
-  font-size: 13px; font-weight: 700; cursor: pointer;
-}
-.action-btn.buy { background: #FEE2E2; color: #DC2626; }
-.action-btn.sell { background: #DCFCE7; color: #16A34A; }
-.action-btn.alert { background: var(--color-bg-secondary); color: var(--color-primary); }
+.panel { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: 0 1px 3px var(--color-shadow); overflow: hidden; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--color-divider); }
+.panel-title { font-size: 13px; font-weight: 700; color: var(--color-text-primary); }
+.panel-count { font-size: 11px; color: var(--color-text-tertiary); }
+.range-bar { display: inline-flex; gap: 1px; padding: 2px; background: var(--color-bg-secondary); border-radius: 4px; }
+.range-btn { border: none; border-radius: 3px; padding: 4px 10px; background: transparent; color: var(--color-text-tertiary); font-size: 12px; font-weight: 500; }
+.range-btn.active { background: var(--color-bg-card); color: var(--color-text-primary); font-weight: 600; box-shadow: 0 1px 2px var(--color-shadow); }
+.chart-area { padding: 12px 14px; }
 
-.section-title { font-size: 15px; font-weight: 700; color: var(--color-text-primary); margin-bottom: 8px; }
-.info-section { padding: 0 16px 16px; }
-.info-grid {
-  display: grid; grid-template-columns: 1fr 1fr;
-  background: var(--color-bg-card); border-radius: 10px; overflow: hidden;
-}
-.info-item {
-  display: flex; justify-content: space-between; padding: 10px 14px;
-  border-bottom: 1px solid var(--color-border); font-size: 13px; color: var(--color-text-primary);
-}
-.info-label { color: var(--color-text-secondary); }
+.action-bar { display: flex; gap: 8px; }
+.act { flex: 1; border: none; border-radius: var(--radius); padding: 10px; font-size: 13px; font-weight: 700; }
+.act.buy { background: var(--color-up-bg); color: var(--color-up); }
+.act.sell { background: var(--color-down-bg); color: var(--color-down); }
+.act.alert { background: var(--color-primary-light); color: var(--color-primary); }
 
-.bullet-section { padding: 0 16px 16px; }
-.barrage-send-row {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 10px;
-}
-.barrage-input {
-  flex: 1; height: 36px; border: 1px solid var(--color-border); border-radius: 18px;
-  padding: 0 14px; font-size: 13px; color: var(--color-text-primary);
-  background: var(--color-bg-card); outline: none;
-}
-.barrage-input:focus { border-color: var(--color-primary); }
-.barrage-colors { display: flex; gap: 4px; }
-.color-dot {
-  width: 18px; height: 18px; border-radius: 9px; cursor: pointer;
-  border: 2px solid transparent; transition: border-color 0.15s;
-}
-.color-dot.active { border-color: var(--color-text-primary); }
-.send-btn {
-  border: none; border-radius: 18px; padding: 6px 16px;
-  background: var(--color-primary); color: #fff;
-  font-size: 13px; font-weight: 600; cursor: pointer;
-}
-.send-btn.disabled { opacity: 0.5; }
-.bullet-list { background: var(--color-bg-card); border-radius: 10px; padding: 8px; }
-.bullet-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; }
-.bullet-dot { width: 8px; height: 8px; border-radius: 4px; flex-shrink: 0; }
-.bullet-text { font-size: 13px; color: var(--color-text-primary); }
-.empty-hint { text-align: center; padding: 16px; color: var(--color-text-tertiary); font-size: 13px; }
+.barrage-form { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--color-divider); }
+.bi { flex: 1; height: 30px; border: 1px solid var(--color-border); border-radius: 4px; padding: 0 10px; font-size: 12px; color: var(--color-text-primary); background: var(--color-bg); outline: none; }
+.bi:focus { border-color: var(--color-primary); }
+.bdots { display: flex; gap: 3px; }
+.bdot { width: 14px; height: 14px; border-radius: 7px; cursor: pointer; border: 2px solid transparent; }
+.bdot.active { border-color: var(--color-text-primary); }
+.bsend { border: none; border-radius: 4px; padding: 5px 12px; background: var(--color-primary); color: #fff; font-size: 12px; font-weight: 600; }
+.bsend:disabled { opacity: 0.5; }
+.bullet-list { max-height: 200px; overflow-y: auto; }
+.brow { display: flex; align-items: center; gap: 8px; padding: 6px 14px; border-bottom: 1px solid var(--color-divider); font-size: 12px; }
+.brow:last-child { border-bottom: none; }
+.bd { width: 5px; height: 5px; border-radius: 3px; flex-shrink: 0; }
+.bt { color: var(--color-text-primary); }
+.empty-hint { padding: 16px; text-align: center; font-size: 12px; color: var(--color-text-tertiary); }
 
-/* Popups */
-.popup-mask {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: flex-end; justify-content: center; z-index: 200;
-}
-.popup-panel {
-  width: 100%; max-width: 480px; background: var(--color-bg-card);
-  border-radius: 16px 16px 0 0; padding: 20px;
-}
-.alert-panel { max-height: 70vh; overflow-y: auto; }
-.popup-head {
-  display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;
-}
-.popup-title { font-size: 17px; font-weight: 700; color: var(--color-text-primary); }
-.popup-close {
-  width: 32px; height: 32px; border: none; border-radius: 16px;
-  background: var(--color-bg-secondary); color: var(--color-text-secondary);
-  font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center;
-}
-.popup-body { margin-bottom: 16px; }
-.form-row { margin-bottom: 12px; }
-.form-row label { display: block; font-size: 13px; color: var(--color-text-secondary); margin-bottom: 4px; }
-.form-input {
-  width: 100%; height: 40px; border: 1px solid var(--color-border); border-radius: 8px;
-  padding: 0 12px; font-size: 14px; color: var(--color-text-primary);
-  background: var(--color-bg); outline: none; box-sizing: border-box;
-}
-.form-input:focus { border-color: var(--color-primary); }
-.form-input.small { width: 80px; }
-.form-select {
-  height: 36px; border: 1px solid var(--color-border); border-radius: 6px;
-  padding: 0 8px; font-size: 13px; color: var(--color-text-primary);
-  background: var(--color-bg); outline: none;
-}
-.form-select.small { width: 90px; }
-.popup-confirm {
-  width: 100%; height: 44px; border: none; border-radius: 10px;
-  background: var(--color-primary); color: #fff;
-  font-size: 15px; font-weight: 700; cursor: pointer;
-}
-.popup-confirm:disabled { opacity: 0.6; }
-.alert-rule { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-.remove-btn {
-  width: 32px; height: 32px; border: none; border-radius: 6px;
-  background: #FEE2E2; color: #DC2626; font-size: 16px; cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-}
-.add-rule-btn {
-  border: 1px dashed var(--color-border); border-radius: 8px;
-  padding: 8px; width: 100%; background: transparent;
-  color: var(--color-primary); font-size: 13px; cursor: pointer;
-}
+.info-grid { padding: 4px 0; }
+.ig { display: flex; justify-content: space-between; padding: 8px 14px; border-bottom: 1px solid var(--color-divider); font-size: 12px; }
+.ig:last-child { border-bottom: none; }
+.ik { color: var(--color-text-tertiary); }
+.iv { color: var(--color-text-primary); font-weight: 500; }
+
+.mask { position: fixed; inset: 0; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.popup { width: 400px; background: var(--color-bg-card); border-radius: var(--radius-lg); padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
+.ph { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.pt { font-size: 15px; font-weight: 700; color: var(--color-text-primary); }
+.px { width: 28px; height: 28px; border: none; border-radius: 14px; background: var(--color-bg-secondary); color: var(--color-text-tertiary); font-size: 16px; display: flex; align-items: center; justify-content: center; }
+.pb { margin-bottom: 14px; }
+.fl { display: block; font-size: 12px; color: var(--color-text-tertiary); margin: 8px 0 4px; }
+.fi { width: 100%; height: 36px; border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0 10px; font-size: 13px; color: var(--color-text-primary); background: var(--color-bg); outline: none; box-sizing: border-box; }
+.fi:focus { border-color: var(--color-primary); }
+.fi.sm { width: 80px; }
+.fs { height: 32px; border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0 8px; font-size: 12px; color: var(--color-text-primary); background: var(--color-bg); outline: none; }
+.fs.sm { width: 65px; }
+.pc { width: 100%; height: 40px; border: none; border-radius: var(--radius); background: var(--color-primary); color: #fff; font-size: 14px; font-weight: 700; }
+.pc:disabled { opacity: 0.5; }
+.ar { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.db { width: 28px; height: 28px; border: none; border-radius: var(--radius); background: var(--color-up-bg); color: var(--color-up); font-size: 14px; display: flex; align-items: center; justify-content: center; }
+.ab { border: 1px dashed var(--color-border); border-radius: var(--radius); padding: 6px; width: 100%; background: transparent; color: var(--color-primary); font-size: 12px; }
+
+.skel-full { height: 400px; border-radius: var(--radius-lg); background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-card) 50%, var(--color-bg-secondary) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 </style>

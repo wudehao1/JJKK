@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getInformationDetail } from '@/api/user'
@@ -18,7 +18,6 @@ onMounted(async () => {
   }
 })
 
-function goBack() { router.back() }
 function fmtTime(t: string) {
   if (!t) return ''
   const d = new Date(t)
@@ -28,11 +27,12 @@ function fmtTime(t: string) {
 
 <template>
   <div class="page">
-    <div class="detail-header">
-      <button class="back-btn" @click="goBack">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5m7-7l-7 7 7 7"/></svg>
-      </button>
-      <div class="header-title">资讯详情</div>
+    <div class="breadcrumb">
+      <span class="bc-link" @click="router.push('/')">首页</span>
+      <span class="bc-sep">/</span>
+      <span class="bc-link" @click="router.push('/information')">资讯</span>
+      <span class="bc-sep">/</span>
+      <span>详情</span>
     </div>
 
     <div v-if="loading" class="loading-state">加载中...</div>
@@ -52,20 +52,12 @@ function fmtTime(t: string) {
 </template>
 
 <style scoped>
-.detail-header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px; background: var(--color-bg-card);
-  border-bottom: 1px solid var(--color-border);
-}
-.back-btn {
-  width: 36px; height: 36px; border: none; border-radius: 8px;
-  background: transparent; color: var(--color-text-secondary);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-}
-.header-title { font-size: 17px; font-weight: 700; color: var(--color-text-primary); }
+.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-tertiary); margin-bottom: 16px; }
+.bc-link { cursor: pointer; color: var(--color-primary); }
+.bc-sep { color: var(--color-border); }
 .loading-state, .empty-state { text-align: center; padding: 40px; color: var(--color-text-secondary); }
-.article { padding: 20px 16px; }
-.article-title { font-size: 20px; font-weight: 800; color: var(--color-text-primary); line-height: 1.4; margin: 0; }
+.article { max-width: 720px; }
+.article-title { font-size: 22px; font-weight: 800; color: var(--color-text-primary); line-height: 1.4; margin: 0; }
 .article-meta { display: flex; gap: 12px; margin-top: 10px; font-size: 13px; color: var(--color-text-tertiary); }
 .article-body {
   margin-top: 20px; font-size: 15px; line-height: 1.8;
@@ -74,7 +66,7 @@ function fmtTime(t: string) {
 .article-body :deep(img) { max-width: 100%; border-radius: 8px; margin: 12px 0; }
 .article-source-link {
   display: inline-block; margin-top: 20px; padding: 8px 16px;
-  border-radius: 8px; background: var(--color-bg-secondary);
+  border-radius: var(--radius); background: var(--color-bg-secondary);
   color: var(--color-primary); font-size: 13px; text-decoration: none;
 }
 </style>

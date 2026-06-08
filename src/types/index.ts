@@ -6,47 +6,58 @@ export interface ApiResponse<T = unknown> {
 }
 
 // Auth
-export interface LoginRequest {
-  phone: string
-  code: string
-}
-
 export interface LoginResult {
-  userId: number
   token: string
+  userId: number
+  displayUserId: string
   nickname: string
+  avatarUrl: string
+  expiresAt: string
 }
 
-// Market
-export interface MarketIndex {
+// Market - matches backend MarketDtos exactly
+export interface IndexQuote {
+  market: string
   symbol: string
   name: string
-  latest: number
-  change: number
+  lastPrice: number
+  changeAmount: number
   changePct: number
-  volume?: number
-  amount?: number
+  turnover: number
+  dataLagSeconds: number
+  quoteTime: string
 }
 
 export interface MarketOverview {
-  indices: MarketIndex[]
-  riseCount: number
-  fallCount: number
-  updateTime: string
+  tradingDay: string
+  updatedAt: string
+  dataStatus: string
+  indices: IndexQuote[]
+  // breadth fields from FundBreadthResponse or live snapshot
+  upCount?: number
+  downCount?: number
+  riseCount?: number
+  fallCount?: number
 }
 
 export interface SectorRanking {
-  sectorCode: string
-  sectorName: string
-  avgReturnPct: number
-  topFund: string
+  code: string
+  name: string
+  latestValue: number
+  changeAmount: number
+  changePct: number
+  mainNetInflow: number
+  direction: string
 }
 
 export interface FundRanking {
   fundCode: string
   fundName: string
-  estimateReturnPct: number
-  unitNav: number
+  sectorName: string
+  latestNavDate: string
+  latestUnitNav: number
+  returnPct: number
+  dataType: string
 }
 
 // Fund
@@ -66,18 +77,6 @@ export interface FundDetail {
   managerName: string
   inceptionDate: string
   benchmark: string
-}
-
-export interface FundHistoryPoint {
-  date: string
-  nav: number
-  returnPct: number
-}
-
-export interface FundMinutePoint {
-  time: string
-  estimateNav: number
-  estimateReturnPct: number
 }
 
 export interface FundSearchResult {
@@ -158,7 +157,6 @@ export interface InformationItem {
   sourceName: string
   publishTime: string
   importance: string
-  imageUrl?: string
 }
 
 export interface InformationPage {
@@ -184,21 +182,5 @@ export interface UserProfile {
   id: number
   nickname: string
   avatarUrl: string
-  phone?: string
   createdAt: string
-}
-
-// Chart
-export interface ChartPoint {
-  x: number
-  y: number
-  label: string
-  value: number
-}
-
-// Profit analysis
-export interface ProfitAnalysisData {
-  totalProfit: number
-  totalProfitPct: number
-  dailyData: { date: string; profit: number }[]
 }

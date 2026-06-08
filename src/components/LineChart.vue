@@ -41,6 +41,7 @@ function draw() {
   ctx.scale(dpr, dpr)
 
   const values = props.points.map(p => p.value)
+  if (!values.length) return
   const min = Math.min(...values)
   const max = Math.max(...values)
   const range = max - min || 1
@@ -69,7 +70,8 @@ function draw() {
   const points = props.points
   for (let i = 0; i < points.length; i++) {
     const x = pad + ((w - pad * 2) / (points.length - 1)) * i
-    const y = h - pad - ((points[i].value - min) / range) * (h - pad * 2)
+    const pt = points[i]; if (!pt) continue
+    const y = h - pad - ((pt.value - min) / range) * (h - pad * 2)
     if (i === 0) ctx.moveTo(x, y)
     else ctx.lineTo(x, y)
   }

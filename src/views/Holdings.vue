@@ -183,10 +183,10 @@ function goFund(code: string) { router.push('/fund/' + code) }
 </template>
 
 <style scoped>
-.holdings-page { padding-bottom: 72px; }
+
 .page-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 16px 8px;
+  margin-bottom: 16px;
 }
 .page-title { font-size: 20px; font-weight: 800; color: var(--color-text-primary); margin: 0; }
 .refresh-btn {
@@ -199,11 +199,11 @@ function goFund(code: string) { router.push('/fund/' + code) }
 .spinning { animation: spin 0.8s linear infinite; }
 
 .skeleton-card {
-  margin: 8px 16px; height: 120px; border-radius: 12px;
+  margin-bottom: 12px; height: 120px; border-radius: 12px;
   background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-card) 50%, var(--color-bg-secondary) 75%);
   background-size: 200% 100%; animation: shimmer 1.5s infinite;
 }
-.skeleton-list { padding: 8px 16px; }
+.skeleton-list { }
 .skeleton-item {
   height: 64px; border-radius: 10px; margin-bottom: 8px;
   background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-card) 50%, var(--color-bg-secondary) 75%);
@@ -216,7 +216,7 @@ function goFund(code: string) { router.push('/fund/' + code) }
 .empty-link { color: var(--color-primary); text-decoration: none; font-size: 14px; margin-top: 8px; display: inline-block; }
 
 .summary-card {
-  margin: 8px 16px; padding: 16px; border-radius: 12px; background: var(--color-bg-card);
+  margin-bottom: 16px; padding: 16px; border-radius: 12px; background: var(--color-bg-card);
 }
 .summary-row { display: flex; gap: 12px; }
 .summary-row + .summary-row { margin-top: 12px; }
@@ -226,7 +226,7 @@ function goFund(code: string) { router.push('/fund/' + code) }
 .summary-value.up { color: var(--color-up); }
 .summary-value.down { color: var(--color-down); }
 
-.section { padding: 12px 16px; }
+.section { margin-bottom: 16px; }
 .section-title { font-size: 15px; font-weight: 700; color: var(--color-text-primary); margin-bottom: 8px; }
 .holding-list { background: var(--color-bg-card); border-radius: 10px; overflow: hidden; }
 .holding-item {
@@ -254,11 +254,11 @@ function goFund(code: string) { router.push('/fund/' + code) }
 
 .popup-mask {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: flex-end; justify-content: center; z-index: 200;
+  display: flex; align-items: center; justify-content: center; z-index: 200;
 }
 .popup-panel {
   width: 100%; max-width: 480px; background: var(--color-bg-card);
-  border-radius: 16px 16px 0 0; padding: 20px;
+  border-radius: var(--radius-lg); padding: 20px;
 }
 .popup-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .popup-title { font-size: 17px; font-weight: 700; color: var(--color-text-primary); }

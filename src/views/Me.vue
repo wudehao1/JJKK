@@ -157,12 +157,12 @@ async function doSubmitFeedback() {
 </template>
 
 <style scoped>
-.me-page { padding-bottom: 72px; }
-.page-header { padding: 16px 16px 8px; }
+
+.page-header { margin-bottom: 16px; }
 .page-title { font-size: 20px; font-weight: 800; color: var(--color-text-primary); margin: 0; }
 .user-card {
   display: flex; align-items: center; gap: 12px;
-  margin: 8px 16px; padding: 16px; border-radius: 12px; background: var(--color-bg-card);
+  margin-bottom: 16px; padding: 16px; max-width: 640px; border-radius: 12px; background: var(--color-bg-card);
 }
 .avatar {
   width: 48px; height: 48px; border-radius: 24px;
@@ -181,7 +181,7 @@ async function doSubmitFeedback() {
 }
 .action-btn.outline { background: var(--color-bg-secondary); color: var(--color-text-secondary); }
 
-.menu-section { margin: 8px 16px; background: var(--color-bg-card); border-radius: 10px; overflow: hidden; }
+.menu-section { margin-bottom: 12px; max-width: 640px; background: var(--color-bg-card); border-radius: 10px; overflow: hidden; }
 .menu-item {
   display: flex; align-items: center; gap: 10px;
   padding: 14px 16px; border-bottom: 1px solid var(--color-border);
@@ -204,11 +204,11 @@ async function doSubmitFeedback() {
 
 .popup-mask {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: flex-end; justify-content: center; z-index: 200;
+  display: flex; align-items: center; justify-content: center; z-index: 200;
 }
 .popup-panel {
   width: 100%; max-width: 480px; background: var(--color-bg-card);
-  border-radius: 16px 16px 0 0; padding: 20px;
+  border-radius: var(--radius-lg); padding: 20px;
 }
 .popup-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .popup-title { font-size: 17px; font-weight: 700; color: var(--color-text-primary); }

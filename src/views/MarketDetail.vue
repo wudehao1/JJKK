@@ -1,5 +1,5 @@
-﻿<script setup lang="ts">
-import { ref, onMounted } from 'vue'
+<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getMarketMinute, getMarketHistory } from '@/api/market'
 import LineChart from '@/components/LineChart.vue'
@@ -17,8 +17,6 @@ const ranges = [
   { key: '1m', label: '近1月' },
   { key: '3m', label: '近3月' }
 ]
-
-import { computed } from 'vue'
 
 async function load() {
   loading.value = true
@@ -44,52 +42,46 @@ function changeRange(key: string) {
   load()
 }
 
-function goBack() { router.back() }
-
 onMounted(load)
 </script>
 
 <template>
   <div class="page">
-    <div class="detail-header">
-      <button class="back-btn" @click="goBack">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5m7-7l-7 7 7 7"/></svg>
-      </button>
-      <div class="header-title">{{ symbol }} 分时走势</div>
+    <div class="breadcrumb">
+      <span class="bc-link" @click="router.push('/')">首页</span>
+      <span class="bc-sep">/</span>
+      <span>{{ symbol }} 分时走势</span>
     </div>
 
-    <div class="chart-section">
-      <div class="range-tabs">
-        <button v-for="r in ranges" :key="r.key" class="range-tab" :class="{ active: currentRange === r.key }" @click="changeRange(r.key)">{{ r.label }}</button>
+    <div class="panel">
+      <div class="panel-head">
+        <div class="range-tabs">
+          <button v-for="r in ranges" :key="r.key" class="range-tab" :class="{ active: currentRange === r.key }" @click="changeRange(r.key)">{{ r.label }}</button>
+        </div>
       </div>
-      <div v-if="loading" class="loading-state">加载中...</div>
-      <LineChart v-else :points="points" :height="240" />
+      <div class="chart-area">
+        <div v-if="loading" class="loading-state">加载中...</div>
+        <LineChart v-else :points="points" :height="320" />
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.detail-header {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px; background: var(--color-bg-card);
-  border-bottom: 1px solid var(--color-border);
-}
-.back-btn {
-  width: 36px; height: 36px; border: none; border-radius: 8px;
-  background: transparent; color: var(--color-text-secondary);
-  display: flex; align-items: center; justify-content: center; cursor: pointer;
-}
-.header-title { font-size: 17px; font-weight: 700; color: var(--color-text-primary); }
-.chart-section { padding: 16px; }
+.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--color-text-tertiary); margin-bottom: 16px; }
+.bc-link { cursor: pointer; color: var(--color-primary); }
+.bc-sep { color: var(--color-border); }
+.panel { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: 0 1px 3px var(--color-shadow); overflow: hidden; }
+.panel-head { padding: 10px 14px; border-bottom: 1px solid var(--color-divider); }
 .range-tabs {
-  display: flex; gap: 4px; padding: 4px; margin-bottom: 12px;
-  background: var(--color-bg-secondary); border-radius: 8px;
+  display: inline-flex; gap: 1px; padding: 2px; background: var(--color-bg-secondary); border-radius: 4px;
 }
 .range-tab {
-  flex: 1; border: none; border-radius: 6px; padding: 6px 0;
+  border: none; border-radius: 3px; padding: 5px 14px;
   background: transparent; color: var(--color-text-secondary);
   font-size: 12px; cursor: pointer;
 }
-.range-tab.active { background: var(--color-bg-card); color: var(--color-primary); font-weight: 600; }
+.range-tab.active { background: var(--color-bg-card); color: var(--color-primary); font-weight: 600; box-shadow: 0 1px 2px var(--color-shadow); }
+.chart-area { padding: 14px; }
 .loading-state { text-align: center; padding: 40px; color: var(--color-text-secondary); }
 </style>

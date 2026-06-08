@@ -27,7 +27,7 @@ http.interceptors.response.use(
       useToast().error(msg)
       return Promise.reject(new Error(msg))
     }
-    return body.data === undefined ? body : body.data
+    return (body.data === undefined ? body : body.data) as any
   },
   (error) => {
     if (error.response) {

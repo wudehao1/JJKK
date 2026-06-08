@@ -1,51 +1,56 @@
 ﻿:root {
-  --color-primary: #1677F2;
-  --color-up: #DC2626;
+  --color-primary: #2563EB;
+  --color-primary-light: #EFF6FF;
+  --color-up: #E53E3E;
+  --color-up-bg: #FFF5F5;
   --color-down: #16A34A;
-  --color-bg: #F5F7FA;
+  --color-down-bg: #F0FFF4;
+  --color-bg: #F8FAFB;
   --color-bg-card: #FFFFFF;
-  --color-bg-secondary: #F0F2F5;
-  --color-bg-hover: #F8FAFC;
-  --color-border: #EDF2F7;
-  --color-text-primary: #1A1A2E;
-  --color-text-secondary: #6B7280;
-  --color-text-tertiary: #9CA3AF;
+  --color-bg-secondary: #F1F5F9;
+  --color-bg-hover: #F8FAFB;
+  --color-border: #E2E8F0;
+  --color-divider: #F1F5F9;
+  --color-shadow: rgba(15, 23, 42, 0.04);
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #64748B;
+  --color-text-tertiary: #94A3B8;
+  --radius: 6px;
+  --radius-lg: 8px;
 }
 
 [data-theme="dark"] {
-  --color-primary: #3B82F6;
-  --color-up: #EF4444;
-  --color-down: #22C55E;
-  --color-bg: #0B1120;
-  --color-bg-card: #141C2E;
+  --color-primary: #60A5FA;
+  --color-primary-light: #1E293B;
+  --color-up: #F87171;
+  --color-up-bg: #1C1017;
+  --color-down: #4ADE80;
+  --color-down-bg: #0C1A12;
+  --color-bg: #0F172A;
+  --color-bg-card: #1E293B;
   --color-bg-secondary: #1E293B;
-  --color-bg-hover: #1E293B;
-  --color-border: #1E293B;
+  --color-bg-hover: #273548;
+  --color-border: #334155;
+  --color-divider: #1E293B;
+  --color-shadow: rgba(0, 0, 0, 0.2);
   --color-text-primary: #F1F5F9;
   --color-text-secondary: #94A3B8;
   --color-text-tertiary: #64748B;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   background: var(--color-bg);
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
 a { color: var(--color-primary); text-decoration: none; }
-button { font-family: inherit; }
+button { font-family: inherit; cursor: pointer; }
+input, select, textarea { font-family: inherit; }
 
-.page {
-  min-height: 100vh;
-  background: var(--color-bg);
-}
+.page { min-height: calc(100vh - 76px); }
