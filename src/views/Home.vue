@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { getMarketOverview, getSectorRankings, getFundRankings, getMarketFundBreadth } from '@/api/market'
@@ -20,63 +20,90 @@ onMounted(async () => {
 
 function fmtPct(val: number | null | undefined) { if (val == null) return '--'; return (val > 0 ? '+' : '') + val.toFixed(2) + '%' }
 function pctCls(val: number | null | undefined) { if (val == null) return 'flat'; return val > 0 ? 'up' : val < 0 ? 'down' : 'flat' }
+function fmtPrice(val: number | null | undefined) { if (val == null) return '--'; return val.toFixed(2) }
 function goFund(code: string) { router.push('/fund/' + code) }
 function goMarket(symbol: string) { router.push('/market/' + symbol) }
 function goSectorRankings() { router.push('/sector-rankings') }
+function sectorBarWidth(pct: number | null | undefined) { if (!pct) return '0%'; return Math.min(Math.abs(pct) * 12, 100) + '%' }
 </script>
 
 <template>
   <div class="page">
-    <div v-if="loading" class="grid-skel"><div class="skel-card" v-for="i in 3" :key="i"></div><div class="skel-block"></div><div class="skel-block"></div></div>
+    <div v-if="loading" class="grid-skel">
+      <div class="skel-cards"><div class="skel-card" v-for="i in 4" :key="i"></div></div>
+      <div class="skel-body"><div class="skel-block"></div><div class="skel-side"></div></div>
+    </div>
 
     <template v-else>
       <!-- Index cards -->
-      <div class="index-row" v-if="overview?.indices?.length">
-        <div v-for="idx in overview.indices" :key="idx.symbol" class="index-card" :class="pctCls(idx.changePct)" @click="goMarket(idx.symbol)">
-          <div class="idx-name">{{ idx.name }}</div>
-          <div class="idx-price">{{ idx.lastPrice?.toFixed(2) || '--' }}</div>
-          <div class="idx-change">
-            <span>{{ (idx.changeAmount > 0 ? '+' : '') + (idx.changeAmount?.toFixed(2) || '0.00') }}</span>
-            <span class="idx-pct">{{ fmtPct(idx.changePct) }}</span>
+      <div class="index-section">
+        <div class="index-scroll">
+          <div v-for="idx in overview?.indices" :key="idx.symbol" class="index-card" :class="pctCls(idx.changePct)" @click="goMarket(idx.symbol)">
+            <div class="idx-top">
+              <span class="idx-name">{{ idx.name }}</span>
+              <span class="idx-market">{{ idx.market }}</span>
+            </div>
+            <div class="idx-price">{{ fmtPrice(idx.lastPrice) }}</div>
+            <div class="idx-row">
+              <span class="idx-change">{{ (idx.changeAmount > 0 ? '+' : '') + (idx.changeAmount?.toFixed(2) || '0.00') }}</span>
+              <span class="idx-pct">{{ fmtPct(idx.changePct) }}</span>
+            </div>
+            <div class="idx-bar"><div class="idx-bar-fill" :class="pctCls(idx.changePct)" :style="'width:' + Math.min(Math.abs(idx.changePct || 0) * 8, 100) + '%'"></div></div>
           </div>
         </div>
         <!-- Breadth -->
-        <div class="breadth-card" v-if="overview.upCount != null || overview.riseCount != null">
-          <div class="br-item"><span class="br-dot up"></span><span class="br-label">上涨</span><span class="br-val up">{{ overview.upCount ?? overview.riseCount }}</span></div>
-          <div class="br-sep"></div>
-          <div class="br-item"><span class="br-dot down"></span><span class="br-label">下跌</span><span class="br-val down">{{ overview.downCount ?? overview.fallCount }}</span></div>
+        <div class="breadth-row" v-if="overview?.upCount != null || overview?.riseCount != null">
+          <div class="breadth-label">涨跌分布</div>
+          <div class="breadth-bar-wrap">
+            <div class="breadth-bar-up" :style="'width:' + ((overview.upCount ?? overview.riseCount ?? 0) / ((overview.upCount ?? overview.riseCount ?? 0) + (overview.downCount ?? overview.fallCount ?? 1)) * 100) + '%'"></div>
+          </div>
+          <div class="breadth-nums">
+            <span class="br-up">{{ overview.upCount ?? overview.riseCount }} 涨</span>
+            <span class="br-down">{{ overview.downCount ?? overview.fallCount }} 跌</span>
+          </div>
         </div>
       </div>
 
-      <!-- Main grid -->
+      <!-- Main content -->
       <div class="main-grid">
-        <!-- Fund rankings table -->
-        <div class="panel">
-          <div class="panel-head"><span class="panel-title">基金涨幅榜</span></div>
-          <table class="data-table">
-            <thead><tr><th class="col-no">#</th><th class="col-name">名称</th><th class="col-code">代码</th><th class="col-num">净值</th><th class="col-num">涨跌幅</th></tr></thead>
-            <tbody>
-              <tr v-for="(fund, i) in rankings" :key="fund.fundCode" @click="goFund(fund.fundCode)">
-                <td class="col-no"><span class="rank-badge" :class="i < 3 ? 'top' : ''">{{ i + 1 }}</span></td>
-                <td class="col-name" :title="fund.fundName">{{ fund.fundName }}</td>
-                <td class="col-code">{{ fund.fundCode }}</td>
-                <td class="col-num">{{ fund.latestUnitNav?.toFixed(4) || '--' }}</td>
-                <td class="col-num" :class="pctCls(fund.returnPct)">{{ fmtPct(fund.returnPct) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        <!-- Sector rankings -->
+        <!-- Fund rankings -->
         <div class="panel">
           <div class="panel-head">
-            <span class="panel-title">板块涨幅</span>
-            <button class="panel-more" @click="goSectorRankings">更多</button>
+            <span class="panel-title">基金涨幅榜</span>
+            <span class="panel-sub">实时估值</span>
           </div>
-          <div class="sector-list">
-            <div v-for="sec in sectors" :key="sec.code" class="sector-row">
-              <span class="sector-name">{{ sec.name }}</span>
-              <span class="sector-pct" :class="pctCls(sec.changePct)">{{ fmtPct(sec.changePct) }}</span>
+          <div class="fund-list">
+            <div v-for="(fund, i) in rankings" :key="fund.fundCode" class="fund-row" @click="goFund(fund.fundCode)">
+              <div class="fr-rank" :class="i < 3 ? 'top' : ''">{{ i + 1 }}</div>
+              <div class="fr-info">
+                <div class="fr-name">{{ fund.fundName }}</div>
+                <div class="fr-meta">{{ fund.fundCode }}<span v-if="fund.sectorName" class="fr-sector">{{ fund.sectorName }}</span></div>
+              </div>
+              <div class="fr-nav">{{ fund.latestUnitNav?.toFixed(4) || '--' }}</div>
+              <div class="fr-return" :class="pctCls(fund.returnPct)">
+                <span class="fr-pct-val">{{ fmtPct(fund.returnPct) }}</span>
+                <div class="fr-pct-bar"><div class="fr-pct-fill" :class="pctCls(fund.returnPct)" :style="'width:' + Math.min(Math.abs(fund.returnPct || 0) * 10, 100) + '%'"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sectors sidebar -->
+        <div class="side-col">
+          <div class="panel">
+            <div class="panel-head">
+              <span class="panel-title">板块涨幅</span>
+              <button class="panel-more" @click="goSectorRankings">更多</button>
+            </div>
+            <div class="sector-list">
+              <div v-for="(sec, i) in sectors" :key="sec.code" class="sector-item" :class="pctCls(sec.changePct)">
+                <div class="si-rank">{{ i + 1 }}</div>
+                <div class="si-info">
+                  <div class="si-name">{{ sec.name }}</div>
+                  <div class="si-bar"><div class="si-bar-fill" :class="pctCls(sec.changePct)" :style="'width:' + sectorBarWidth(sec.changePct)"></div></div>
+                </div>
+                <div class="si-pct" :class="pctCls(sec.changePct)">{{ fmtPct(sec.changePct) }}</div>
+              </div>
             </div>
           </div>
         </div>
@@ -86,70 +113,127 @@ function goSectorRankings() { router.push('/sector-rankings') }
 </template>
 
 <style scoped>
-.index-row { display: flex; gap: 12px; margin-bottom: 16px; }
+.index-section { margin-bottom: 20px; }
+.index-scroll { display: flex; gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+.index-scroll::-webkit-scrollbar { display: none; }
+
 .index-card {
-  flex: 1; padding: 16px 18px; border-radius: var(--radius-lg);
+  flex: 0 0 180px; padding: 14px 16px 10px; border-radius: 10px;
   background: var(--color-bg-card); box-shadow: 0 2px 8px var(--color-shadow);
-  cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden;
+  cursor: pointer; transition: all 0.2s; position: relative;
 }
-.index-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.1); transform: translateY(-1px); }
-.index-card.up { border-left: 3px solid var(--color-up); background: linear-gradient(135deg, var(--color-bg-card) 70%, var(--color-up-bg) 100%); }
-.index-card.down { border-left: 3px solid var(--color-down); background: linear-gradient(135deg, var(--color-bg-card) 70%, var(--color-down-bg) 100%); }
-.index-card.flat { border-left: 3px solid var(--color-border); }
-.idx-name { font-size: 12px; color: var(--color-text-tertiary); font-weight: 500; }
-.idx-price { font-size: 24px; font-weight: 800; margin: 6px 0 3px; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
-.index-card.up .idx-price, .index-card.up .idx-change { color: var(--color-up); }
-.index-card.down .idx-price, .index-card.down .idx-change { color: var(--color-down); }
-.idx-change { font-size: 12px; font-weight: 600; display: flex; gap: 8px; font-variant-numeric: tabular-nums; }
-.breadth-card {
-  display: flex; align-items: center; gap: 20px; padding: 0 24px;
-  border-radius: var(--radius-lg); background: var(--color-bg-card);
-  box-shadow: 0 2px 8px var(--color-shadow);
-}
-.br-item { display: flex; align-items: center; gap: 6px; }
-.br-dot { width: 6px; height: 6px; border-radius: 3px; }
-.br-dot.up { background: var(--color-up); }
-.br-dot.down { background: var(--color-down); }
-.br-label { font-size: 12px; color: var(--color-text-tertiary); }
-.br-val { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.br-val.up { color: var(--color-up); }
-.br-val.down { color: var(--color-down); }
-.br-sep { width: 1px; height: 24px; background: var(--color-border); }
+.index-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.12); transform: translateY(-2px); }
+.index-card.up { border-top: 3px solid var(--color-up); }
+.index-card.down { border-top: 3px solid var(--color-down); }
+.index-card.flat { border-top: 3px solid var(--color-border); }
 
-.main-grid { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
-.panel { background: var(--color-bg-card); border-radius: var(--radius-lg); box-shadow: 0 2px 8px var(--color-shadow); overflow: hidden; }
+.idx-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.idx-name { font-size: 13px; font-weight: 700; color: var(--color-text-primary); }
+.idx-market { font-size: 10px; color: var(--color-text-tertiary); padding: 1px 5px; background: var(--color-bg-secondary); border-radius: 3px; }
+.idx-price { font-size: 22px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; margin-bottom: 4px; }
+.index-card.up .idx-price { color: var(--color-up); }
+.index-card.down .idx-price { color: var(--color-down); }
+.index-card.flat .idx-price { color: var(--color-text-primary); }
+.idx-row { display: flex; justify-content: space-between; align-items: center; }
+.idx-change { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.idx-pct { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; padding: 2px 6px; border-radius: 4px; }
+.index-card.up .idx-change, .index-card.up .idx-pct { color: var(--color-up); }
+.index-card.up .idx-pct { background: var(--color-up-bg); }
+.index-card.down .idx-change, .index-card.down .idx-pct { color: var(--color-down); }
+.index-card.down .idx-pct { background: var(--color-down-bg); }
+.index-card.flat .idx-change, .index-card.flat .idx-pct { color: var(--color-text-secondary); }
+
+.idx-bar { margin-top: 8px; height: 3px; background: var(--color-bg-secondary); border-radius: 2px; overflow: hidden; }
+.idx-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+.idx-bar-fill.up { background: var(--color-up); }
+.idx-bar-fill.down { background: var(--color-down); }
+.idx-bar-fill.flat { background: var(--color-border); }
+
+/* Breadth */
+.breadth-row {
+  display: flex; align-items: center; gap: 12px; margin-top: 14px;
+  padding: 12px 16px; background: var(--color-bg-card); border-radius: 10px;
+  box-shadow: 0 1px 4px var(--color-shadow);
+}
+.breadth-label { font-size: 12px; color: var(--color-text-tertiary); font-weight: 600; white-space: nowrap; }
+.breadth-bar-wrap { flex: 1; height: 8px; background: var(--color-down-bg); border-radius: 4px; overflow: hidden; }
+.breadth-bar-up { height: 100%; background: var(--color-up-bg); border-radius: 4px; transition: width 0.5s; }
+.breadth-nums { display: flex; gap: 12px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.br-up { color: var(--color-up); }
+.br-down { color: var(--color-down); }
+
+/* Main grid */
+.main-grid { display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
+.panel { background: var(--color-bg-card); border-radius: 10px; box-shadow: 0 2px 8px var(--color-shadow); overflow: hidden; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--color-divider); }
-.panel-title { font-size: 14px; font-weight: 700; color: var(--color-text-primary); }
-.panel-more { border: none; background: none; color: var(--color-text-tertiary); font-size: 12px; }
-.panel-more:hover { color: var(--color-primary); }
+.panel-title { font-size: 14px; font-weight: 800; color: var(--color-text-primary); }
+.panel-sub { font-size: 11px; color: var(--color-text-tertiary); background: var(--color-bg-secondary); padding: 2px 6px; border-radius: 3px; }
+.panel-more { border: none; background: none; color: var(--color-primary); font-size: 12px; font-weight: 600; }
+.panel-more:hover { text-decoration: underline; }
 
-.data-table { width: 100%; border-collapse: collapse; }
-.data-table th { padding: 8px 12px; text-align: left; font-size: 11px; font-weight: 600; color: var(--color-text-tertiary); border-bottom: 1px solid var(--color-divider); text-transform: uppercase; letter-spacing: 0.3px; }
-.data-table td { padding: 10px 12px; border-bottom: 1px solid var(--color-divider); font-size: 13px; }
-.data-table tr { cursor: pointer; transition: background 0.1s; }
-.data-table tr:hover { background: var(--color-primary-light); }
-.data-table tr:last-child td { border-bottom: none; }
-.col-no { width: 40px; text-align: center; }
-.col-name { font-weight: 600; color: var(--color-text-primary); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.col-code { color: var(--color-text-tertiary); font-size: 12px; }
-.col-num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
-td.up { color: var(--color-up); }
-td.down { color: var(--color-down); }
-td.flat { color: var(--color-text-secondary); }
-.rank-badge { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center; border-radius: 6px; font-size: 11px; font-weight: 800; background: var(--color-bg-secondary); color: var(--color-text-tertiary); }
-.rank-badge.top { background: linear-gradient(135deg, #FEF3C7, #FDE68A); color: #B45309; box-shadow: 0 1px 3px rgba(180,83,9,0.15); }
+/* Fund list */
+.fund-list { }
+.fund-row {
+  display: flex; align-items: center; gap: 10px; padding: 11px 16px;
+  border-bottom: 1px solid var(--color-divider); cursor: pointer; transition: background 0.1s;
+}
+.fund-row:last-child { border-bottom: none; }
+.fund-row:hover { background: var(--color-primary-light); }
 
-.sector-list { padding: 4px 0; }
-.sector-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--color-divider); font-size: 13px; position: relative; }
-.sector-row:last-child { border-bottom: none; }
-.sector-name { color: var(--color-text-primary); font-weight: 500; }
-.sector-pct { font-weight: 800; font-variant-numeric: tabular-nums; min-width: 64px; text-align: right; }
-.sector-pct.up { color: var(--color-up); }
-.sector-pct.down { color: var(--color-down); }
-.sector-pct.flat { color: var(--color-text-secondary); }
+.fr-rank {
+  width: 24px; height: 24px; line-height: 24px; text-align: center;
+  border-radius: 6px; font-size: 11px; font-weight: 900;
+  background: var(--color-bg-secondary); color: var(--color-text-tertiary); flex-shrink: 0;
+}
+.fr-rank.top { background: linear-gradient(135deg, #FEF3C7, #FDE68A); color: #92400E; }
 
-.grid-skel { display: flex; gap: 12px; margin-bottom: 16px; }
-.skel-card { flex: 1; height: 90px; border-radius: var(--radius-lg); background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-card) 50%, var(--color-bg-secondary) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
-.skel-block { height: 300px; border-radius: var(--radius-lg); background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-card) 50%, var(--color-bg-secondary) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+.fr-info { flex: 1; min-width: 0; }
+.fr-name { font-size: 13px; font-weight: 600; color: var(--color-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fr-meta { font-size: 11px; color: var(--color-text-tertiary); margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+.fr-sector { padding: 0 4px; border: 1px solid var(--color-border); border-radius: 3px; font-size: 10px; }
+
+.fr-nav { font-size: 13px; font-weight: 600; color: var(--color-text-primary); text-align: right; min-width: 70px; font-variant-numeric: tabular-nums; }
+
+.fr-return { text-align: right; min-width: 90px; }
+.fr-pct-val { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.fr-pct-val.up { color: var(--color-up); }
+.fr-pct-val.down { color: var(--color-down); }
+.fr-pct-val.flat { color: var(--color-text-secondary); }
+.fr-pct-bar { margin-top: 3px; height: 3px; background: var(--color-bg-secondary); border-radius: 2px; overflow: hidden; }
+.fr-pct-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+.fr-pct-fill.up { background: var(--color-up); }
+.fr-pct-fill.down { background: var(--color-down); }
+
+/* Sector sidebar */
+.side-col { }
+.sector-list { }
+.sector-item {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border-bottom: 1px solid var(--color-divider); transition: background 0.1s;
+}
+.sector-item:last-child { border-bottom: none; }
+.sector-item:hover { background: var(--color-primary-light); }
+
+.si-rank { font-size: 11px; font-weight: 700; color: var(--color-text-tertiary); width: 16px; text-align: center; flex-shrink: 0; }
+.si-info { flex: 1; min-width: 0; }
+.si-name { font-size: 13px; font-weight: 600; color: var(--color-text-primary); margin-bottom: 4px; }
+.si-bar { height: 4px; background: var(--color-bg-secondary); border-radius: 2px; overflow: hidden; }
+.si-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+.si-bar-fill.up { background: linear-gradient(90deg, var(--color-up), #F87171); }
+.si-bar-fill.down { background: linear-gradient(90deg, var(--color-down), #86EFAC); }
+.si-bar-fill.flat { background: var(--color-border); }
+
+.si-pct { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 60px; text-align: right; flex-shrink: 0; }
+.si-pct.up { color: var(--color-up); }
+.si-pct.down { color: var(--color-down); }
+.si-pct.flat { color: var(--color-text-secondary); }
+
+/* Skeleton */
+.grid-skel { }
+.skel-cards { display: flex; gap: 12px; margin-bottom: 16px; }
+.skel-card { flex: 0 0 180px; height: 100px; border-radius: 10px; background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-card) 50%, var(--color-bg-secondary) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+.skel-body { display: grid; grid-template-columns: 1fr 300px; gap: 16px; }
+.skel-block { height: 400px; border-radius: 10px; background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-card) 50%, var(--color-bg-secondary) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+.skel-side { height: 300px; border-radius: 10px; background: linear-gradient(90deg, var(--color-bg-secondary) 25%, var(--color-bg-card) 50%, var(--color-bg-secondary) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 </style>
